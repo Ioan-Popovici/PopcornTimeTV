@@ -54,10 +54,8 @@ struct TrailerButton: View {
             }
             #if os(iOS)
             .overlay(alignment: .topLeading, content: {
-                if #available(iOS 16, *) {
-                    closeButton
-                        .position(x:20, y:35)
-                }
+                closeButton
+                    .position(x:20, y:35)
             })
             #endif
             .ignoresSafeArea()

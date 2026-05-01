@@ -40,7 +40,7 @@ class NowPlayingController {
     init(mediaplayer: VLCMediaPlayer, media: Media, localPathToMedia: URL) {
         self.mediaplayer = mediaplayer
         self.media = media
-        self.imageGenerator = AVAssetImageGenerator(asset: AVAsset(url: localPathToMedia))
+        self.imageGenerator = AVAssetImageGenerator(asset: AVURLAsset(url: localPathToMedia))
         
         // Load duration asynchronously to avoid deprecation warning
         Task {
@@ -157,16 +157,14 @@ class NowPlayingController {
         return fabsf(remaining) + elapsed
     }
     
-    func screenshotAtTime(_ time: NSNumber) -> CGImage? {
-        guard let image = try? imageGenerator.copyCGImage(at: CMTimeMakeWithSeconds(time.doubleValue/1000.0, preferredTimescale: 1000), actualTime: nil) else {
-            return nil
-        }
-        return image
+    func screenshotAtTime(_ time: NSNumber) async -> CGImage? {
+        let cmTime = CMTimeMakeWithSeconds(time.doubleValue / 1000.0, preferredTimescale: 1000)
+        return try? await imageGenerator.image(at: cmTime).image
     }
-    
-    func screenshot(at progress: Float) -> CGImage? {
+
+    func screenshot(at progress: Float) async -> CGImage? {
         let currentTime = NSNumber(value: progress * streamDuration)
-        return screenshotAtTime(currentTime)
+        return await screenshotAtTime(currentTime)
     }
 }
 

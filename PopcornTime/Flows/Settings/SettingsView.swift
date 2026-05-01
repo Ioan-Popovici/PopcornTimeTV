@@ -148,7 +148,7 @@ struct SettingsView: View {
             }
             .pickerStyle(.menu)
             .frame(maxWidth: 200)
-            .onChange(of: selectedSubtitleLanguage) { newValue in
+            .onChange(of: selectedSubtitleLanguage) { _, newValue in
                 subtitleSettings.language = newValue == "None" ? nil : newValue
                 subtitleSettings.save()
             }
@@ -422,14 +422,14 @@ struct SettingsView: View {
         }, message: {
             Text("Are you sure you want to sign out of OpenSubtitles?")
         })
-        .onChange(of: viewModel.isOpenSubtitlesLoggedIn) { loggedIn in
+        .onChange(of: viewModel.isOpenSubtitlesLoggedIn) { _, loggedIn in
             if loggedIn {
                 showOpenSubtitlesLogin = false
                 openSubtitlesUsername = ""
                 openSubtitlesPassword = ""
             }
         }
-        .onChange(of: viewModel.openSubtitlesLoginError) { loginError in
+        .onChange(of: viewModel.openSubtitlesLoginError) { _, loginError in
             if loginError?.isEmpty == false {
                 showOpenSubtitlesLogin = true
             }

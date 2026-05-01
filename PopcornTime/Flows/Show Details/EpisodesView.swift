@@ -63,7 +63,7 @@ struct EpisodesView: View {
                               media: item.episode,
                               nextEpisode: NextEpisode(episode: item.episode, show: show).next())
         })
-        .onChange(of: episodes) { newValue in
+        .onChange(of: episodes) { _, newValue in
             if currentEpisode == nil {
                 currentEpisode = newValue.first
             }

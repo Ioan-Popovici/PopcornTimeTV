@@ -241,12 +241,16 @@ class PlayerViewModel: NSObject, ObservableObject {
         workItem?.cancel()
         let percentage = progress.scrubbingProgress
         workItem = DispatchWorkItem { [weak self] in
-            if let image = self?.nowPlaying.screenshotAtTime(time) {
-                self?.progress.screenshot = image
-            } else {
-                self?.nowPlaying.vlcScreenshotAtPercentage(percentage, completion: { image in
-                    self?.progress.screenshot = image
-                })
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let image = await self.nowPlaying.screenshotAtTime(time) {
+                    self.progress.screenshot = image
+                } else {
+                    self.nowPlaying.vlcScreenshotAtPercentage(percentage, completion: { image in
+                        self.progress.screenshot = image
+                    })
+                }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem!)
@@ -281,13 +285,16 @@ class PlayerViewModel: NSObject, ObservableObject {
         showControls = true
         progress.screenshot = nil
         
-        if let image = nowPlaying.screenshot(at: progress.progress) {
-            progress.screenshot = image
-        } else {
-            let percentage = progress.scrubbingProgress
-            self.nowPlaying.vlcScreenshotAtPercentage(percentage, completion: { image in
-                self.progress.screenshot = image
-            })
+        let progressValue = progress.progress
+        let percentage = progress.scrubbingProgress
+        Task { @MainActor in
+            if let image = await nowPlaying.screenshot(at: progressValue) {
+                progress.screenshot = image
+            } else {
+                nowPlaying.vlcScreenshotAtPercentage(percentage, completion: { image in
+                    self.progress.screenshot = image
+                })
+            }
         }
     }
 
@@ -343,7 +350,13 @@ class PlayerViewModel: NSObject, ObservableObject {
         resetIdleTimer()
         if mediaplayer.videoCropGeometry == nil // Change to aspect to scale to fill
         {
-            let screen =  UIScreen.screens.count > 1 ? UIScreen.screens[1] : UIScreen.main
+            let connectedScreens = UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.screen }
+            let primaryScreen = UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.keyWindow?.screen }
+                .first ?? connectedScreens.first
+            let externalScreen = connectedScreens.first { $0 !== primaryScreen }
+            let screen = externalScreen ?? primaryScreen ?? UIScreen.main
             let size = screen.bounds.size
             mediaplayer.videoCropGeometry = UnsafeMutablePointer<Int8>(mutating: (size.vlcAspectRatio as NSString).utf8String)
 //            screenshotImageView!.contentMode = .scaleAspectFill

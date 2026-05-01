@@ -42,18 +42,18 @@ struct PlainNavigationLinkButton: View {
             .overlay(overlayColor)
             .environment(\.isButtonPress, configuration.isPressed)
             #endif
-            .onChange(of: focused) { newValue in
+            .onChange(of: focused) { _, newValue in
                 if newValue {
                     onFocus()
                 }
             }
-            .onChange(of: configuration.isPressed) { newValue in
+            .onChange(of: configuration.isPressed) { _, newValue in
                 if newValue {
                     onFocus()
                 }
             }
     }
-    
+
     /// highlight effect
     @ViewBuilder
     var overlayColor: some View {
@@ -94,7 +94,7 @@ struct PlainButton: View {
             .scaleEffect(focused || configuration.isPressed ? theme.scaleEffect : 1)
             .foregroundColor((focused || configuration.isPressed) ? .primary : .appGray)
             .animation(.easeOut, value: focused)
-            .onChange(of: focused) { newValue in
+            .onChange(of: focused) { _, newValue in
                 if newValue {
                     onFocus()
                 }

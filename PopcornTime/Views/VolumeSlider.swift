@@ -35,7 +35,7 @@ struct VolumeButtonSlider: View {
             }
             .frame(width: 41)
         }
-        .onChange(of: volume) { newValue in
+        .onChange(of: volume) {
             onVolumeChange()
         }
     }
@@ -66,7 +66,6 @@ struct VolumeSlider: UIViewRepresentable {
     
     func makeUIView(context: Context) -> MPVolumeView {
         let volumeView = MPVolumeView(frame: .zero)
-        volumeView.showsRouteButton = false
         if let slider = volumeView.subviews.compactMap({$0 as? UISlider}).first {
             context.coordinator.addObservers(slider: slider)
             DispatchQueue.main.async {
