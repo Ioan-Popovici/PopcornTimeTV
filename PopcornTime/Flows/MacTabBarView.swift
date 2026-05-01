@@ -23,7 +23,7 @@ struct MacTabBarView: ViewModifier {
             ToolbarItem(placement: .primaryAction) {
                 EmptyView()
                     .searchable(text: $searchModel.search)
-                    .onChange(of: searchModel.search) { newValue in
+                    .onChange(of: searchModel.search) { _, newValue in
                         if selectedTab != .search {
                             searchModel.selection = selectedTab == .shows ? .shows : .movies
                         }

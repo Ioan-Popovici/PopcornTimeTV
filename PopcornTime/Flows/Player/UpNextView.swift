@@ -42,12 +42,12 @@ struct UpNextView: View {
                             .foregroundColor(Color(white: 0, opacity: 0.9)))
             .buttonStyle(PlainNavigationLinkButtonStyle())
         }
-        .onChange(of: playerModel.progress.showUpNextProgress, perform: { newValue in
+        .onChange(of: playerModel.progress.showUpNextProgress) { _, newValue in
             let completed = newValue == 0
             if completed {
                 playNext()
             }
-        })
+        }
         .buttonStyle(.plain)
         .accentColor(.white)
     }

@@ -166,7 +166,6 @@ struct ShowDetailsView: View, MediaPosterLoader {
         let certifications = (["HD", "CC"]).map { Text(Image($0).renderingMode(.template)) }
         
         let watchOn: String = .localizedStringWithFormat("Watch %@ on %@".localized, show.title, show.network ?? "TV")
-        let runtime = "Run Time".localized + " \(show.runtime ?? 0) min"
         
         return VStack(alignment: .leading) {
             Text(title)

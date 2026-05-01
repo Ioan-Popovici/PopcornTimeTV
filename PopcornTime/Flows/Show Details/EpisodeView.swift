@@ -59,11 +59,11 @@ struct EpisodeView: View {
         .onAppear {
             viewModel.loadImageIfMissing(episode: episode)
         }
-        .onChange(of: isFocused, perform: { newValue in
+        .onChange(of: isFocused) { _, newValue in
             if newValue {
                 onFocus()
             }
-        })
+        }
     }
     
     @ViewBuilder

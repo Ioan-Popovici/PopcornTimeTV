@@ -48,10 +48,10 @@ public struct VisualEffectBlur<Content: View>: View {
 // MARK: - Representable
 extension VisualEffectBlur {
     #if os(tvOS)  || os(iOS)
-    struct Representable<Content: View>: UIViewRepresentable {
+    struct Representable<RepContent: View>: UIViewRepresentable {
         var blurStyle: UIBlurEffect.Style
         var vibrancyEffect: UIVibrancyEffect?
-        var content: Content
+        var content: RepContent
 
         func makeUIView(context: Context) -> UIVisualEffectView {
             context.coordinator.blurView
@@ -66,9 +66,9 @@ extension VisualEffectBlur {
         }
     }
     #elseif os(macOS)
-    struct Representable<Content: View>: NSViewRepresentable {
-        var content: Content
-        
+    struct Representable<RepContent: View>: NSViewRepresentable {
+        var content: RepContent
+
         func makeNSView(context: Context) -> NSVisualEffectView {
             return context.coordinator.visualEffectView
         }
@@ -76,7 +76,7 @@ extension VisualEffectBlur {
         func updateNSView(_ visualEffectView: NSVisualEffectView, context: Context) {
             context.coordinator.update(content: content)
         }
-        
+
         func makeCoordinator() -> Coordinator {
             Coordinator(content: content)
         }
@@ -89,18 +89,18 @@ extension VisualEffectBlur {
 extension VisualEffectBlur.Representable {
     class Coordinator {
         let blurView = UIVisualEffectView()
-        let hostingController: UIHostingController<Content>
+        let hostingController: UIHostingController<RepContent>
 
-        init(content: Content) {
+        init(content: RepContent) {
             hostingController = UIHostingController(rootView: content)
             hostingController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             hostingController.view.backgroundColor = nil
-            
+
             blurView.contentView.addSubview(hostingController.view)
             blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         }
 
-        func update(content: Content, blurStyle: UIBlurEffect.Style) {
+        func update(content: RepContent, blurStyle: UIBlurEffect.Style) {
             hostingController.rootView = content
 
             let blurEffect = UIBlurEffect(style: blurStyle)
@@ -125,13 +125,13 @@ extension VisualEffectBlur.Representable {
     class Coordinator {
         let material: NSVisualEffectView.Material = .contentBackground
         let blendingMode: NSVisualEffectView.BlendingMode = .withinWindow
-        let hostingController: NSHostingController<Content>
+        let hostingController: NSHostingController<RepContent>
         let visualEffectView: NSVisualEffectView
 
-        init(content: Content) {
+        init(content: RepContent) {
             hostingController = NSHostingController(rootView: content)
             hostingController.view.autoresizingMask = [.width, .height]
-            
+
             visualEffectView = NSVisualEffectView()
             visualEffectView.material = material
             visualEffectView.blendingMode = blendingMode
@@ -140,7 +140,7 @@ extension VisualEffectBlur.Representable {
             visualEffectView.autoresizingMask = [.width, .height]
         }
 
-        func update(content: Content) {
+        func update(content: RepContent) {
             hostingController.rootView = content
         }
     }

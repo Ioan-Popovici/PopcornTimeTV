@@ -51,12 +51,12 @@ struct TVButton: View {
         #if !os(macOS)
             .animation(.easeOut, value: focused)
         #endif
-            .onChange(of: focused) { newValue in
+            .onChange(of: focused) { _, newValue in
                 if newValue {
                     onFocus()
                 }
             }
-            .onChange(of: configuration.isPressed) { newValue in
+            .onChange(of: configuration.isPressed) { _, newValue in
                 if newValue {
                     onPressed()
                 }

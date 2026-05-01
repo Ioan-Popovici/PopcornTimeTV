@@ -6,10 +6,4 @@
 //  Copyright © 2021 PopcornTime. All rights reserved.
 //
 
-import PopcornKit
-
-extension Subtitle: Identifiable {
-    public var id: String {
-        name + language
-    }
-}
+// Identifiable conformance now lives in PopcornKit's Subtitle.swift.

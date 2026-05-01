@@ -54,11 +54,11 @@ struct MovieView: View {
                 .drawingGroup() // increase scroll perfomance
         }
         #if os(iOS)
-        .onChange(of: isButtonPress, perform: { newValue in
+        .onChange(of: isButtonPress) { _, newValue in
             withAnimation(Animation.easeOut.delay(newValue ? 0.5 : 0)) {
                 self.longPress = newValue
             }
-        })
+        }
         #endif
     }
     

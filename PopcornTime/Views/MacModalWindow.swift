@@ -19,7 +19,7 @@ struct MacModalWindow<Content: View, Modal: View>: View {
     
     var body: some View {
         content
-            .onChange(of: isPresented) { newValue in
+            .onChange(of: isPresented) { _, newValue in
                 if newValue {
                     showWindow()
                 } else {
@@ -85,10 +85,10 @@ struct MacModalWindowWrapper<Item, Content, Modal>: View where Item : Identifiab
     
     var body: some View {
         content
-            .onChange(of: item) { newValue in
+            .onChange(of: item) { _, newValue in
                 self.isPresented = (newValue != nil)
             }
-            .onChange(of: isPresented) { newValue in
+            .onChange(of: isPresented) { _, newValue in
                 if !newValue {  // propagate back change
                     self.item = nil
                 }

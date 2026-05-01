@@ -22,16 +22,16 @@ struct HideableView<Content: View>: NSViewRepresentable {
         container.isContentHidden = isHidden
     }
     
-    class ViewContainer<Content: View>: NSView {
-        var child: NSHostingController<Content>
+    class ViewContainer<HostedContent: View>: NSView {
+        var child: NSHostingController<HostedContent>
         var didShow = false
         var isContentHidden: Bool {
             didSet {
                 addOrRemove()
             }
         }
-        
-        init(isContentHidden: Bool, child: Content) {
+
+        init(isContentHidden: Bool, child: HostedContent) {
             self.child = NSHostingController(rootView: child)
             self.isContentHidden = isContentHidden
             super.init(frame: .zero)
