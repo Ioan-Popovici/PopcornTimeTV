@@ -15,47 +15,54 @@ final class ExternalDisplayContent: ObservableObject {
     var isShowingOnExternalDisplay = false
 }
 
-/// Observer when a new display is connected
+/// Observer when a new display is connected.
+///
+/// iOS 16+ replaces UIScreen.didConnect/didDisconnectNotification with the
+/// UIScene scene-tracking notifications below. We watch UIWindowScene
+/// connect/disconnect events, then attach an ExternalView to any newly
+/// available external screen.
 struct SecondaryScreen: ViewModifier {
     @State var additionalWindows: [UIWindow] = []
     @StateObject var displayContent = ExternalDisplayContent()
 
-    private var screenDidConnectPublisher: AnyPublisher<UIScreen, Never> {
+    private var sceneDidConnectPublisher: AnyPublisher<UIWindowScene, Never> {
         NotificationCenter.default
-            .publisher(for: UIScreen.didConnectNotification)
-            .compactMap { $0.object as? UIScreen }
+            .publisher(for: UIScene.willConnectNotification)
+            .compactMap { $0.object as? UIWindowScene }
             .receive(on: RunLoop.main)
             .eraseToAnyPublisher()
     }
 
-    private var screenDidDisconnectPublisher: AnyPublisher<UIScreen, Never> {
+    private var sceneDidDisconnectPublisher: AnyPublisher<UIWindowScene, Never> {
         NotificationCenter.default
-            .publisher(for: UIScreen.didDisconnectNotification)
-            .compactMap { $0.object as? UIScreen }
+            .publisher(for: UIScene.didDisconnectNotification)
+            .compactMap { $0.object as? UIWindowScene }
             .receive(on: RunLoop.main)
             .eraseToAnyPublisher()
     }
-    
+
     func body(content: Content) -> some View {
         content
             .environmentObject(displayContent)
-            .onReceive(screenDidConnectPublisher, perform: screenDidConnect)
-            .onReceive(screenDidDisconnectPublisher, perform: screenDidDisconnect)
+            .onReceive(sceneDidConnectPublisher, perform: sceneDidConnect)
+            .onReceive(sceneDidDisconnectPublisher, perform: sceneDidDisconnect)
     }
 
-    private func screenDidDisconnect(_ screen: UIScreen) {
-        additionalWindows.removeAll { $0.screen == screen }
+    private func sceneDidDisconnect(_ scene: UIWindowScene) {
+        additionalWindows.removeAll { $0.windowScene === scene }
         displayContent.isShowingOnExternalDisplay = false
     }
 
+    private func sceneDidConnect(_ scene: UIWindowScene) {
+        // Only attach to non-key (i.e. external) scenes
+        let keyScene = UIApplication.shared.connectedScenes
+            .first { ($0 as? UIWindowScene)?.keyWindow != nil } as? UIWindowScene
+        guard scene !== keyScene else { return }
 
-    private func screenDidConnect(_ screen: UIScreen) {
-        let window = UIWindow(frame: screen.bounds)
+        let screen = scene.screen
+        let window = UIWindow(windowScene: scene)
+        window.frame = screen.bounds
 
-        window.windowScene = UIApplication.shared.connectedScenes
-            .first { ($0 as? UIWindowScene)?.screen == screen }
-            as? UIWindowScene
-        
         screen.overscanCompensation = .scale
 
         let view = ExternalView(screen: screen)
@@ -66,7 +73,7 @@ struct SecondaryScreen: ViewModifier {
         controller.view.backgroundColor = UIColor.red
         window.isHidden = false
         additionalWindows.append(window)
-        
+
         displayContent.isShowingOnExternalDisplay = true
     }
 }

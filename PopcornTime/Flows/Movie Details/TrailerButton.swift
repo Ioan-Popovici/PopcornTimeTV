@@ -45,8 +45,10 @@ struct TrailerButton: View {
                     viewModel.trailerVidePlayer?.play()
                 }
                 
-                self.playerObservation = NotificationCenter.default.addObserver(forName:.AVPlayerItemDidPlayToEndTime, object:nil, queue: .main, using: {_ in
-                    self.showPlayer = false
+                self.playerObservation = NotificationCenter.default.addObserver(forName:.AVPlayerItemDidPlayToEndTime, object:nil, queue: .main, using: { _ in
+                    Task { @MainActor in
+                        self.showPlayer = false
+                    }
                 })
             }
             .onDisappear {

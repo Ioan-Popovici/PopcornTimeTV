@@ -9,11 +9,11 @@
 import Foundation
 import SwiftUI
 #if os(tvOS)
-import TVVLCKit
+@preconcurrency import TVVLCKit
 #elseif os(iOS)
-import MobileVLCKit
+@preconcurrency import MobileVLCKit
 #elseif os(macOS)
-import VLCKit
+@preconcurrency import VLCKit
 #endif
 import PopcornKit
 
@@ -97,28 +97,34 @@ class PlayerSubtitleModel {
     
     lazy var subtitleEncodingBinding: Binding<String> =  {
         Binding(get: { [unowned self] in
-            settings.encoding
+            MainActor.assumeIsolated { settings.encoding }
         }, set: { [unowned self] encoding in
-            settings.encoding = encoding
-            settings.save()
-            mediaplayer.media?.addOptions([vlcSettingTextEncoding: encoding])
+            MainActor.assumeIsolated {
+                settings.encoding = encoding
+                settings.save()
+                mediaplayer.media?.addOptions([vlcSettingTextEncoding: encoding])
+            }
         })
     }()
-    
+
     lazy var subtitleDelayBinding: Binding<Int> = {
         Binding(get: { [unowned self] in
-            mediaplayer.currentVideoSubTitleDelay / 1_000_000 // from microseconds to seconds
+            MainActor.assumeIsolated { mediaplayer.currentVideoSubTitleDelay / 1_000_000 } // from microseconds to seconds
         }, set: { [unowned self] newDelay in
-            mediaplayer.currentVideoSubTitleDelay = newDelay * 1_000_000
+            MainActor.assumeIsolated {
+                mediaplayer.currentVideoSubTitleDelay = newDelay * 1_000_000
+            }
         })
     }()
-    
+
     lazy var subtitleBinding: Binding<Subtitle?> = {
         Binding(get: { [unowned self] in
-            currentSubtitle
+            MainActor.assumeIsolated { currentSubtitle }
         }, set: { [unowned self] subtitle in
-            currentSubtitle = subtitle
-            configurePlayer(subtitle: subtitle)
+            MainActor.assumeIsolated {
+                currentSubtitle = subtitle
+                configurePlayer(subtitle: subtitle)
+            }
         })
     }()
 }

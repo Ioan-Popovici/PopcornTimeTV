@@ -9,14 +9,15 @@
 import Foundation
 import SwiftUI
 #if os(tvOS)
-import TVVLCKit
+@preconcurrency import TVVLCKit
 #elseif os(iOS)
-import MobileVLCKit
+@preconcurrency import MobileVLCKit
 #elseif os(macOS)
-import VLCKit
+@preconcurrency import VLCKit
 #endif
 import AVKit
 
+@MainActor
 class PlayerAudioModel {
     private(set) var mediaplayer: VLCMediaPlayer
     var audioProfile: EqualizerProfiles = .fullDynamicRange

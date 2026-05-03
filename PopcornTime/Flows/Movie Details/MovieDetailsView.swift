@@ -173,20 +173,22 @@ struct MovieDetailsView: View, MediaPosterLoader {
     
     @ViewBuilder
     func actionButtons(scroll: ScrollViewProxy?) -> some View {
-        HStack(spacing: 24) {
-            TrailerButton(viewModel: viewModel.trailerModel)
-            PlayButton(media: movie)
-            watchlistButton
-            watchedButton
-            DownloadButton(viewModel: viewModel.downloadModel)
-        }
-        .buttonStyle(TVButtonStyle(onFocus: {
-            #if os(tvOS)
-            withAnimation {
-                scroll?.scrollTo(section1, anchor: .top)
+        GlassEffectContainer(spacing: 24) {
+            HStack(spacing: 24) {
+                TrailerButton(viewModel: viewModel.trailerModel)
+                PlayButton(media: movie)
+                watchlistButton
+                watchedButton
+                DownloadButton(viewModel: viewModel.downloadModel)
             }
-            #endif
-        }))
+            .buttonStyle(TVButtonStyle(onFocus: {
+                #if os(tvOS)
+                withAnimation {
+                    scroll?.scrollTo(section1, anchor: .top)
+                }
+                #endif
+            }))
+        }
     }
     
     var infoText: some View {

@@ -12,6 +12,7 @@ import MediaPlayer
 import PopcornKit
 import Combine
 
+@MainActor
 class DownloadViewModel: NSObject, ObservableObject {
     var download: PTTorrentDownload
     @Published var status: PTTorrentStatus
@@ -28,8 +29,11 @@ class DownloadViewModel: NSObject, ObservableObject {
     }
     
     func addObserver() {
-        observation = download.observe(\.torrentStatus) { [weak self] download, change in
-            self?.status = download.torrentStatus
+        observation = download.observe(\.torrentStatus) { download, _ in
+            let newStatus = download.torrentStatus
+            Task { @MainActor [weak self] in
+                self?.status = newStatus
+            }
         }
         status = download.torrentStatus
     }
