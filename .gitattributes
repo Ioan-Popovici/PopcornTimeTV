@@ -1,0 +1,42 @@
+# Force LF line endings on text files; binary blobs untouched.
+* text=auto eol=lf
+
+# Swift / project files.
+*.swift     text diff=swift
+*.h         text diff=objc
+*.m         text diff=objc
+*.mm        text diff=cpp
+*.pbxproj   text -merge=union
+Package.swift     text
+Package.resolved  text -diff
+
+# Plists are XML.
+*.plist     text
+
+# Shell + config.
+*.sh        text eol=lf
+*.yml       text
+*.yaml      text
+.swiftformat text
+.editorconfig text
+Makefile    text eol=lf
+
+# Asset catalogs are text JSON.
+*.xcassets/**/Contents.json text
+
+# Binary assets.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.icns      binary
+*.tar.xz    binary
+*.zip       binary
+*.ipa       binary
+*.framework binary
+
+# Don't archive build dirs / secrets in git archive output.
+.github       export-ignore
+.gitattributes export-ignore
+.gitignore     export-ignore
+build         export-ignore

@@ -2,184 +2,131 @@ name: CI
 
 on:
   push:
+  pull_request:
   schedule:
-    - cron: '0 0 1 * *' # "At 00:00 on the 1st of every month"
+    - cron: '0 0 1 * *' # 00:00 on the 1st of every month
+
+# Cancel superseded runs on the same branch / PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-tvos:
-    name: tvOS
-
+  build:
+    name: ${{ matrix.platform }}
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: tvOS
+            scheme: PopcornTime (tvOS)
+            sdk: appletvos
+            destination: generic/platform=tvOS
+            app_path: PopcornTime (tvOS).app
+            artifact: PopcornTime-tvOS
+            artifact_ext: ipa
+            vlc_arg: tv
+            extra: ""
+          - platform: iOS
+            scheme: PopcornTime (iOS)
+            sdk: iphoneos
+            destination: generic/platform=iOS
+            app_path: PopcornTime.app
+            artifact: PopcornTime-iOS
+            artifact_ext: ipa
+            vlc_arg: ios
+            extra: ""
+          - platform: macOS
+            scheme: PopcornTime (macOS)
+            sdk: macosx
+            destination: platform=macOS
+            app_path: PopcornTime.app
+            artifact: PopcornTime-macOS
+            artifact_ext: zip
+            vlc_arg: mac
+            extra: 'VALID_ARCHS="arm64 x86_64"'
 
     steps:
-    - uses: actions/checkout@v4
-        
-    - name: "Get cache: VLC"
-      uses: actions/cache@v4
-      id: cache
-      with:
-        path: |
-          VLCKit
-        key: ${{ hashFiles('VLCKit/get-vlc-frameworks.sh') }}-tv
-        
-    - uses: actions/cache@v4
-      name: "Get cache: SPM"
-      with:
-        path: ~/Library/Developer/Xcode/DerivedData/PopcornTime*/SourcePackages/
-        key: ${{ runner.os }}-spm-${{ hashFiles('PopcornTime.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-        restore-keys: |
-            ${{ runner.os }}-spm-${{ hashFiles('PopcornTime.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-                
-    - name: Compile
-      run: |
-        xcodebuild archive \
-          -project PopcornTime.xcodeproj \
-          -scheme PopcornTime\ \(tvOS\) \
-          -configuration Release \
-          CODE_SIGN_IDENTITY= \
-          CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGNING_ALLOWED=NO
-        
-    - name: Package
-      run: |
-        mkdir Payload
-        cp -r ~/Library/Developer/Xcode/Archives/*/*/Products/Applications/PopcornTime\ \(tvOS\).app Payload
-        wget https://github.com/sbingner/ldid/releases/download/v2.1.4+16.g5b8581c/ldid-osx.gz
-        gunzip ldid-osx.gz
-        chmod +x ldid-osx
-        ./ldid-osx -S Payload/PopcornTime\ \(tvOS\).app/PopcornTime\ \(tvOS\)
-        zip -r PopcornTime-tvOS.ipa Payload
-        
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: 'PopcornTime-tvOS'
-        path: |
-          PopcornTime-tvOS.ipa
+      - uses: actions/checkout@v4
 
-    - name: Release
-      uses: softprops/action-gh-release@v2
-      if: startsWith(github.ref, 'refs/tags/')
-      with:
-        files: PopcornTime-tvOS.ipa
-          
-  build-ios:
-    name: iOS
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
 
-    runs-on: macos-15
+      - name: Install xcbeautify
+        run: brew install xcbeautify
 
-    steps:
-    - uses: actions/checkout@v4
-        
-    - name: Get cache
-      uses: actions/cache@v4
-      id: cache
-      with:
-        path: |
-          VLCKit
-        key: ${{ hashFiles('VLCKit/get-vlc-frameworks.sh') }}-ios
+      - name: Cache VLCKit
+        uses: actions/cache@v4
+        with:
+          path: VLCKit
+          key: vlckit-${{ matrix.vlc_arg }}-${{ hashFiles('VLCKit/get-vlc-frameworks.sh') }}
 
-    - uses: actions/cache@v4
-      name: "Get cache: SPM"
-      with:
-        path: ~/Library/Developer/Xcode/DerivedData/PopcornTime*/SourcePackages/
-        key: ${{ runner.os }}-spm-${{ hashFiles('PopcornTime.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-        restore-keys: |
-            ${{ runner.os }}-spm-${{ hashFiles('PopcornTime.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/PopcornTime*/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('PopcornTime.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
 
-    # - name: Download iOS platform
-    #   run: |
-    #       xcodebuild -downloadPlatform iOS -exportPath ~/Downloads
-    #       xcodebuild -showsdks
-    #       xcodebuild -scheme PopcornTime\ \(iOS\) -showdestinations || true
+      - name: Cache ldid
+        if: matrix.artifact_ext == 'ipa'
+        uses: actions/cache@v4
+        with:
+          path: ldid-osx
+          key: ldid-osx-v2.1.4-16.g5b8581c
 
-    - name: Compile
-      run: |
-        xcodebuild archive \
-          -project PopcornTime.xcodeproj \
-          -scheme PopcornTime\ \(iOS\) \
-          -destination generic/platform=iOS \
-          -configuration Release \
-          CODE_SIGN_IDENTITY= \
-          CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGNING_ALLOWED=NO
-        
-    - name: Package
-      run: |
-        mkdir Payload
-        cp -r ~/Library/Developer/Xcode/Archives/*/*/Products/Applications/PopcornTime.app Payload
-        wget https://github.com/sbingner/ldid/releases/download/v2.1.4+16.g5b8581c/ldid-osx.gz
-        gunzip ldid-osx.gz
-        chmod +x ldid-osx
-        ./ldid-osx -S Payload/PopcornTime.app/PopcornTime
-        zip -r PopcornTime-iOS.ipa Payload
-        
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: 'PopcornTime-iOS'
-        path: |
-          PopcornTime-iOS.ipa
+      - name: Fetch VLCKit
+        run: bash VLCKit/get-vlc-frameworks.sh ${{ matrix.vlc_arg }}
 
-    - name: Release
-      uses: softprops/action-gh-release@v2
-      if: startsWith(github.ref, 'refs/tags/')
-      with:
-        files: PopcornTime-iOS.ipa
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project PopcornTime.xcodeproj \
+            -scheme "${{ matrix.scheme }}" \
+            -destination "${{ matrix.destination }}" \
+            -configuration Release \
+            -archivePath build/PopcornTime.xcarchive \
+            CODE_SIGN_IDENTITY= \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ${{ matrix.extra }} | xcbeautify --renderer github-actions
 
-  build-macos:
-    name: macOS
+      - name: Package (.ipa)
+        if: matrix.artifact_ext == 'ipa'
+        run: |
+          set -euo pipefail
+          mkdir -p Payload
+          cp -R "build/PopcornTime.xcarchive/Products/Applications/${{ matrix.app_path }}" Payload/
+          if [ ! -f ldid-osx ]; then
+            curl -fsSL --retry 3 \
+              https://github.com/sbingner/ldid/releases/download/v2.1.4+16.g5b8581c/ldid-osx.gz \
+              | gunzip -c > ldid-osx
+            chmod +x ldid-osx
+          fi
+          BIN_NAME=$(basename "${{ matrix.app_path }}" .app)
+          ./ldid-osx -S "Payload/${{ matrix.app_path }}/${BIN_NAME}"
+          zip -qr "${{ matrix.artifact }}.ipa" Payload
 
-    runs-on: macos-latest
+      - name: Package (.zip)
+        if: matrix.artifact_ext == 'zip'
+        run: |
+          set -euo pipefail
+          mkdir -p Payload
+          cp -R build/PopcornTime.xcarchive/Products/Applications/. Payload/
+          zip -qr "${{ matrix.artifact }}.zip" Payload
 
-    steps:
-    - uses: actions/checkout@v4
-        
-    - name: "Get cache: VLC"
-      uses: actions/cache@v4
-      id: cache
-      with:
-        path: |
-          VLCKit
-        key: ${{ hashFiles('VLCKit/get-vlc-frameworks.sh') }}-macos
-        
-    - uses: actions/cache@v4
-      name: "Get cache: SPM"
-      with:
-        path: ~/Library/Developer/Xcode/DerivedData/PopcornTime*/SourcePackages/
-        key: ${{ runner.os }}-spm-${{ hashFiles('PopcornTime.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-        restore-keys: |
-            ${{ runner.os }}-spm-${{ hashFiles('PopcornTime.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-                
-    # - name: Select Xcode version
-    #   run: sudo xcode-select -s '/Applications/Xcode_14.1.app/Contents/Developer'
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.${{ matrix.artifact_ext }}
 
-    - name: Compile
-      run: |
-        xcodebuild archive \
-          -project PopcornTime.xcodeproj \
-          -scheme PopcornTime\ \(macOS\) \
-          -configuration Release \
-          CODE_SIGN_IDENTITY= \
-          CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGNING_ALLOWED=NO \
-          VALID_ARCHS="arm64 x86_64"
-        
-    - name: Package
-      run: |
-        mkdir Payload
-        cp -r ~/Library/Developer/Xcode/Archives/*/*/Products/Applications/ Payload
-        zip -r PopcornTime-macOS.zip Payload
-        
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: 'PopcornTime-macOS'
-        path: |
-          PopcornTime-macOS.zip
-
-  #   - name: Release
-  #     uses: softprops/action-gh-release@v2
-  #     if: startsWith(github.ref, 'refs/tags/')
-  #     with:
-  #       files: PopcornTime-macOS.zip
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}.${{ matrix.artifact_ext }}
