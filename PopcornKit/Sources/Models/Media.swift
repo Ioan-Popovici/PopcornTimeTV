@@ -4,7 +4,7 @@ import Foundation
 import ObjectMapper
 
 /// Generic media protocol.
-public protocol Media: Mappable {
+public protocol Media: Mappable, Sendable {
     var title: String { get }
     var id: String { get }
     var tmdbId: Int? { get set }

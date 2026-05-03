@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct CurrentTabKey: EnvironmentKey {
-    static var defaultValue: TabBarView.Selection = .movies
+    static let defaultValue: TabBarView.Selection = .movies
 }
 extension EnvironmentValues {
     var currentTab: TabBarView.Selection {

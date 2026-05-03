@@ -10,6 +10,7 @@ import Foundation
 import GCDWebServer
 import PopcornKit
 
+@MainActor
 class LoadExternalTorrentViewModel: ObservableObject {
     var webserver = GCDWebServer()
     

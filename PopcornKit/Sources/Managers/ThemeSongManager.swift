@@ -5,7 +5,7 @@ import AVFoundation
 import SwiftyJSON
 
 /// Class for managing TV Show and Movie Theme songs.
-public class ThemeSongManager {
+public class ThemeSongManager: @unchecked Sendable {
     
     /// Global player ref.
     private var player: AVAudioPlayer?

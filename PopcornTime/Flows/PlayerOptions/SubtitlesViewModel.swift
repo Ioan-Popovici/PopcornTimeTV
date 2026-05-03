@@ -10,6 +10,7 @@ import Foundation
 import SwiftUI
 import PopcornKit
 
+@MainActor
 class SubtitlesViewModel: ObservableObject {
     
     let delays = (-60..<60)

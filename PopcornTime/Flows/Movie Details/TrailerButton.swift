@@ -93,7 +93,7 @@ struct TrailerButton: View {
                 .overlay(Image("CloseiOS"))
         }
         .frame(width: 46, height: 46)
-//        .background(.regularMaterial)
+        .glassEffect(.regular.interactive(), in: .circle)
     }
 }
 

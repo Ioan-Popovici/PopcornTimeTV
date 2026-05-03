@@ -9,6 +9,7 @@
 import SwiftUI
 import PopcornKit
 
+@MainActor
 class SeasonPickerViewModel: ObservableObject {
     struct Season: Hashable {
         var number: Int

@@ -24,8 +24,8 @@ struct HttpApiConfig {
     
     var validStatuses = (200...299)
     var missingSession = [401]
-    var closeSession: (_ error: Error) -> Void = { error in  }
-    var apiErrorDecoder: (_ data: Data) -> Error? = { data in return nil } // used de extract errors from data
+    var closeSession: @Sendable (_ error: Error) -> Void = { error in  }
+    var apiErrorDecoder: @Sendable (_ data: Data) -> Error? = { data in return nil } // used de extract errors from data
 }
 
 // User-Agent Header; see https://tools.ietf.org/html/rfc7231#section-5.5.3

@@ -7,7 +7,7 @@
 
 import Foundation
 
-open class DHTApi {
+open class DHTApi: @unchecked Sendable {
     let client = HttpClient(config: HttpApiConfig(serverURL: DHT.base))
     
     public static let shared = DHTApi()

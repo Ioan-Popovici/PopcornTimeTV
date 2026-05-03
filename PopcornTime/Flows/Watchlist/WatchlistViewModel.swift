@@ -9,6 +9,7 @@
 import SwiftUI
 import PopcornKit
 
+@MainActor
 class WatchlistViewModel: ObservableObject {
     @Published var movies: [Movie] = []
     @Published var shows: [Show] = []

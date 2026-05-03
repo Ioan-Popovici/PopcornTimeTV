@@ -4,14 +4,14 @@ import Foundation
 import ObjectMapper
 
 private struct Static {
-    static var movieInstance: WatchlistManager<Movie>? = WatchlistManager<Movie>()
-    static var showInstance: WatchlistManager<Show>? = WatchlistManager<Show>()
+    nonisolated(unsafe) static var movieInstance: WatchlistManager<Movie>? = WatchlistManager<Movie>()
+    nonisolated(unsafe) static var showInstance: WatchlistManager<Show>? = WatchlistManager<Show>()
 }
 
 typealias jsonArray = [[String : Any]]
 
 /// Class for managing a users watchlist.
-open class WatchlistManager<N: Media> {
+open class WatchlistManager<N: Media>: @unchecked Sendable {
     
     private let currentType: Trakt.MediaType
     
@@ -51,8 +51,10 @@ open class WatchlistManager<N: Media> {
      - Parameter media: The media to add.
      */
     open func add(_ media: N) {
+        let id = media.id
+        let type = currentType
         Task {
-            try? await TraktApi.shared.add(media.id, toWatchlistOfType: currentType)
+            try? await TraktApi.shared.add(id, toWatchlistOfType: type)
         }
         var array = UserDefaults.standard.object(forKey: "\(currentType.rawValue)Watchlist") as? jsonArray ?? jsonArray()
         array.append(Mapper<N>().toJSON(media))
@@ -65,8 +67,10 @@ open class WatchlistManager<N: Media> {
      - Parameter media: The media to remove.
      */
     open func remove(_ media: N) {
+        let id = media.id
+        let type = currentType
         Task {
-            try? await TraktApi.shared.remove(media.id, fromWatchlistOfType: currentType)
+            try? await TraktApi.shared.remove(id, fromWatchlistOfType: type)
         }
         if var array = UserDefaults.standard.object(forKey: "\(currentType.rawValue)Watchlist") as? jsonArray,
             let index = Mapper<N>().mapArray(JSONArray: array).firstIndex(where: { $0.id == media.id }) {

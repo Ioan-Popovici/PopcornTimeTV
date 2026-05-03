@@ -4,7 +4,7 @@ import Foundation
 import ObjectMapper
 
 /// Generic person protocol.
-public protocol Person: Mappable {
+public protocol Person: Mappable, Sendable {
     var name: String { get }
     var initials: String { get }
     var tmdbId: Int { get }

@@ -3,7 +3,7 @@
 import Foundation
 import SwiftyJSON
 
-open class TMDBApi {
+open class TMDBApi: @unchecked Sendable {
     
     /// Creates new instance of TMDBManager class
     public static let shared = TMDBApi()

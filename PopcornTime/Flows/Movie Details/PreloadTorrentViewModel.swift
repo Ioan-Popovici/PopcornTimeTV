@@ -14,6 +14,7 @@ import MediaPlayer.MPMediaItem
 import UIKit
 #endif
 
+@MainActor
 class PreloadTorrentViewModel: ObservableObject {
     var torrent: Torrent
     var media: Media

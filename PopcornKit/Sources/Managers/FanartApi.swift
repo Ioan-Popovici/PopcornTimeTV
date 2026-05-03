@@ -8,7 +8,7 @@
 import Foundation
 import SwiftyJSON
 
-open class FanartApi {
+open class FanartApi: @unchecked Sendable {
     /// Creates new instance of FanArtApi class
     public static let shared = FanartApi()
     

@@ -10,7 +10,7 @@ import Foundation
 // explanation https://dev.to/kodelit/userdefaults-property-wrapper-issues-solutions-4lk9#improved-user-default
 // repo https://github.com/kodelit/UserDefaultPropertyWrapper
 @propertyWrapper
-struct UserDefault<T> {
+struct UserDefault<T>: @unchecked Sendable {
   let key: String
   let defaultValue: T
   

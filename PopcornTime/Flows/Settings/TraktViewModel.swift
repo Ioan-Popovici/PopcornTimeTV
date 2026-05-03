@@ -10,6 +10,7 @@ import Foundation
 import PopcornKit
 import SwiftUI
 
+@MainActor
 class TraktViewModel: ObservableObject {
     @Published var displayCode: String?
     @Published var error: Error?

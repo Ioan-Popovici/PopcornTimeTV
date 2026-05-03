@@ -10,6 +10,7 @@ import SwiftUI
 import PopcornKit
 import Combine
 
+@MainActor
 class SearchViewModel: ObservableObject {
     enum SearchType: Int {
         case movies = 0, shows, people

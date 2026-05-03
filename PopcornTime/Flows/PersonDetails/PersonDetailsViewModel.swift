@@ -9,6 +9,7 @@
 import SwiftUI
 import PopcornKit
 
+@MainActor
 class PersonDetailsViewModel: ObservableObject, MediaPosterLoader {
     var person: Person
     

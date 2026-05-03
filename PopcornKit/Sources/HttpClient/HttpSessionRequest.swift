@@ -9,13 +9,13 @@ import Foundation
 import ObjectMapper
 
 
-struct HttpSessionRequest {
+struct HttpSessionRequest: Sendable {
     var request: URLRequest
     var session: URLSession = .shared
     var validStatuses = (200...299)
     var missingSession = [401]
-    var closeSession: (_ error: Error) -> Void = { error in  }
-    var apiErrorDecoder: (_ data: Data) -> Error? = { data in return nil } // used de extract errors from data
+    var closeSession: @Sendable (_ error: Error) -> Void = { error in  }
+    var apiErrorDecoder: @Sendable (_ data: Data) -> Error? = { data in return nil } // used de extract errors from data
     
     func response() async throws {
         let (data, response): (Data, URLResponse) = try await session.data(for: request)
@@ -97,6 +97,7 @@ struct HttpSessionRequest {
             let accessDenied = missingSession.contains(statusCode)
             
             if accessDenied {
+                let closeSession = self.closeSession
                 DispatchQueue.main.async {
                     closeSession(APIError(type: .missingSession))
                 }

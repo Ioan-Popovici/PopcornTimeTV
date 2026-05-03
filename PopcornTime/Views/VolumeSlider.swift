@@ -102,6 +102,7 @@ struct VolumeSlider: UIViewRepresentable {
         return VolumeSliderCoordinator(volume: $volume, mute: $mute)
     }
     
+    @MainActor
     class VolumeSliderCoordinator {
         var volume: Binding<Float>
         var mute: Binding<Bool>

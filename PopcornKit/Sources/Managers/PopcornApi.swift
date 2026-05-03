@@ -2,10 +2,10 @@
 import Foundation
 import ObjectMapper
 
-open class PopcornApi {
+open class PopcornApi: @unchecked Sendable {
     
     /// Creates new instance of PopcornApi class
-    public static var shared = PopcornApi()
+    nonisolated(unsafe) public static var shared = PopcornApi()
     
     let client: HttpClient
     

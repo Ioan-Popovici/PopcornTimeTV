@@ -7,7 +7,7 @@
 
 import Foundation
 
-open class OMDbApi {
+open class OMDbApi: @unchecked Sendable {
     let client = HttpClient(config: HttpApiConfig(serverURL: OMDb.base))
     
     public static let shared = OMDbApi()

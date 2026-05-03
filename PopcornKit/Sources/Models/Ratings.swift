@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct Ratings: Equatable {
+public struct Ratings: Equatable, Sendable {
     public var awards: String?
     public var imdbRating: String?
     public var metascore: String?

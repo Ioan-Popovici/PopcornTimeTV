@@ -8,31 +8,73 @@
 
 import Foundation
 
+private extension UserDefaults {
+    func optionalString(forKey key: String) -> String? { string(forKey: key) }
+    func optionalData(forKey key: String) -> Data? { data(forKey: key) }
+    func optionalDate(forKey key: String) -> Date? { object(forKey: key) as? Date }
+}
+
 enum Session {
-    @UserDefault(key: "tosAccepted", defaultValue: false)
-    static var tosAccepted: Bool
-    
-    @UserDefault(key: "autoSelectQuality", defaultValue: nil)
-    static var autoSelectQuality: String?
-    
-    @UserDefault(key: "streamOnCellular", defaultValue: false)
-    static var streamOnCellular: Bool
-    
-    @UserDefault(key: "removeCacheOnPlayerExit", defaultValue: false)
-    static var removeCacheOnPlayerExit: Bool
-    
-    @UserDefault(key: "themeSongVolume", defaultValue: 0.75)
-    static var themeSongVolume: Float
-    
-    @UserDefault(key: "oauthCredentials", defaultValue: nil)
-    static var oauthCredentials: Data?
-    
-    @UserDefault(key: "skipReleaseVersion", defaultValue: nil)
-    static var skipReleaseVersion: Data?
-    
-    @UserDefault(key: "subtitleSettings", defaultValue: nil)
-    static var subtitleSettings: Data?
-    
-    @UserDefault(key: "lastVersionCheckPerformedOnDate", defaultValue: nil)
-    static var lastVersionCheckPerformedOnDate: Date?
+    static var tosAccepted: Bool {
+        get { UserDefaults.standard.bool(forKey: "tosAccepted") }
+        set { UserDefaults.standard.set(newValue, forKey: "tosAccepted") }
+    }
+
+    static var autoSelectQuality: String? {
+        get { UserDefaults.standard.optionalString(forKey: "autoSelectQuality") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "autoSelectQuality") }
+            else { UserDefaults.standard.removeObject(forKey: "autoSelectQuality") }
+        }
+    }
+
+    static var streamOnCellular: Bool {
+        get { UserDefaults.standard.bool(forKey: "streamOnCellular") }
+        set { UserDefaults.standard.set(newValue, forKey: "streamOnCellular") }
+    }
+
+    static var removeCacheOnPlayerExit: Bool {
+        get { UserDefaults.standard.bool(forKey: "removeCacheOnPlayerExit") }
+        set { UserDefaults.standard.set(newValue, forKey: "removeCacheOnPlayerExit") }
+    }
+
+    static var themeSongVolume: Float {
+        get {
+            let raw = UserDefaults.standard.object(forKey: "themeSongVolume") as? Float
+            return raw ?? 0.75
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "themeSongVolume") }
+    }
+
+    static var oauthCredentials: Data? {
+        get { UserDefaults.standard.optionalData(forKey: "oauthCredentials") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "oauthCredentials") }
+            else { UserDefaults.standard.removeObject(forKey: "oauthCredentials") }
+        }
+    }
+
+    static var skipReleaseVersion: Data? {
+        get { UserDefaults.standard.optionalData(forKey: "skipReleaseVersion") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "skipReleaseVersion") }
+            else { UserDefaults.standard.removeObject(forKey: "skipReleaseVersion") }
+        }
+    }
+
+    static var subtitleSettings: Data? {
+        get { UserDefaults.standard.optionalData(forKey: "subtitleSettings") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "subtitleSettings") }
+            else { UserDefaults.standard.removeObject(forKey: "subtitleSettings") }
+        }
+    }
+
+    static var lastVersionCheckPerformedOnDate: Date? {
+        get { UserDefaults.standard.optionalDate(forKey: "lastVersionCheckPerformedOnDate") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "lastVersionCheckPerformedOnDate") }
+            else { UserDefaults.standard.removeObject(forKey: "lastVersionCheckPerformedOnDate") }
+        }
+    }
 }

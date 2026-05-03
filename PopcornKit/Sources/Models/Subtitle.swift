@@ -4,7 +4,7 @@ import ObjectMapper
 /**
   Struct for managing subtitle objects.
  */
-public struct Subtitle: Equatable, Identifiable, Mappable {
+public struct Subtitle: Equatable, Identifiable, Mappable, Sendable {
 
     public var id: String { name + language }
 

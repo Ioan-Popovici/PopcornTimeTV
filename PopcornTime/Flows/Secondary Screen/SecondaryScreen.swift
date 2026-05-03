@@ -9,6 +9,7 @@
 import SwiftUI
 import Combine
 
+@MainActor
 final class ExternalDisplayContent: ObservableObject {
     @Published var view: AnyView?
     var isShowingOnExternalDisplay = false

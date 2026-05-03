@@ -3,7 +3,7 @@
 import Foundation
 import SwiftUI
 
-class SubtitleSettings: Codable {
+class SubtitleSettings: Codable, @unchecked Sendable {
     
     enum Size: Float, CaseIterable, Codable {
         case small = 20.0
