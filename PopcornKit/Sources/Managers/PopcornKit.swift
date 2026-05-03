@@ -16,16 +16,16 @@ public func loadShows(
     genre: Popcorn.Genres = .all,
     searchTerm: String? = nil,
     orderBy order: Popcorn.Orders = .descending) async throws -> [Show] {
-    return try await PopcornApi.shared.load(page, filterBy: filter, genre: genre, searchTerm: searchTerm, orderBy: order)
+    return try await PopcornApi.shared.loadShowsAggregated(page, filterBy: filter, genre: genre, searchTerm: searchTerm, orderBy: order)
 }
 
 /**
  Get more show information.
- 
+
  - Parameter imdbId:        The imdb identification code of the show.
  */
 public func getShowInfo(_ imdbId: String) async throws -> Show {
-    return try await PopcornApi.shared.getInfo(imdbId)
+    return try await PopcornApi.shared.getShowInfoAggregated(imdbId)
 }
 
 
@@ -44,16 +44,16 @@ public func loadMovies(
     genre: Popcorn.Genres = .all,
     searchTerm: String? = nil,
     orderBy order: Popcorn.Orders = .descending) async throws -> [Movie] {
-    try await PopcornApi.shared.load(page, filterBy: filter, genre: genre, searchTerm: searchTerm, orderBy: order)
+    try await PopcornApi.shared.loadMoviesAggregated(page, filterBy: filter, genre: genre, searchTerm: searchTerm, orderBy: order)
 }
 
 /**
  Get more movie information.
- 
+
  - Parameter imdbId:        The imdb identification code of the movie.
  */
 public func getMovieInfo(_ imdbId: String) async throws -> Movie {
-    try await PopcornApi.shared.getInfo(imdbId)
+    try await PopcornApi.shared.getMovieInfoAggregated(imdbId)
 }
 
 /**
