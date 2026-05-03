@@ -68,29 +68,52 @@ extension PopcornApi {
         searchTerm: String?,
         orderBy order: Popcorn.Orders
     ) async throws -> [Movie] {
+        // `showAll=1` + `limit=50` mirrors what Popcorn-Desktop 0.5.1 sends so
+        // we get the same wider catalog response (un-curated titles included)
+        // and the same page size (50 instead of the popcorn-api default 30).
         var params: [String: any Sendable] = [
             "sort": filter.rawValue,
             "order": order.rawValue,
             "genre": genre.rawValue.replacingOccurrences(of: " ", with: "-").lowercased(),
+            "limit": 50,
+            "showAll": 1,
         ]
         if let searchTerm, !searchTerm.isEmpty {
             params["keywords"] = searchTerm
         }
         let path = Popcorn.movies + "/\(page)"
         let frozenParams = params
-        let results: [[Movie]] = await PopcornApi.aggregate { client in
+
+        async let popcornResults: [[Movie]] = PopcornApi.aggregate { client in
             try await client.request(.get, path: path, parameters: frozenParams).responseMapable()
         }
-        guard !results.isEmpty else { throw APIError(type: .missingContent) }
-        return Movie.merge(results)
+        // YTS in parallel: independent index, often surfaces titles the
+        // popcorn-api mirrors don't carry.
+        async let ytsResult: [Movie]? = try? await YTSApi.shared.loadMovies(
+            page: page, filter: filter, genre: genre, searchTerm: searchTerm
+        )
+
+        var allLists = await popcornResults
+        if let yts = await ytsResult, !yts.isEmpty {
+            allLists.append(yts)
+        }
+        guard !allLists.isEmpty else { throw APIError(type: .missingContent) }
+        return Movie.merge(allLists)
     }
 
     open func getMovieInfoAggregated(_ imdbId: String) async throws -> Movie {
         let path = Popcorn.movie + "/\(imdbId)"
-        let results: [Movie] = await PopcornApi.aggregate { client in
+
+        async let popcornResults: [Movie] = PopcornApi.aggregate { client in
             try await client.request(.get, path: path).responseMapable()
         }
-        guard let merged = Movie.mergeInfo(results) else {
+        async let ytsResult: Movie? = try? await YTSApi.shared.getMovieInfo(imdbId: imdbId)
+
+        var variants = await popcornResults
+        if let yts = await ytsResult {
+            variants.append(yts)
+        }
+        guard let merged = Movie.mergeInfo(variants) else {
             throw APIError(type: .missingContent)
         }
         return merged
@@ -109,6 +132,8 @@ extension PopcornApi {
             "sort": filter.rawValue,
             "genre": genre.rawValue.replacingOccurrences(of: " ", with: "-").lowercased(),
             "order": order.rawValue,
+            "limit": 50,
+            "showAll": 1,
         ]
         if let searchTerm, !searchTerm.isEmpty {
             params["keywords"] = searchTerm

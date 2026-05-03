@@ -141,8 +141,36 @@ public struct OMDb {
 // cloudflare cached version of above
 public struct DHT {
     static let base = "https://popcorn-dht.8mdm9hjd2h.workers.dev"
-    
+
     static let defaultParameters: [String: String] = [:]
+}
+
+/// YTS — independent direct API for movies (yts.mx/api/v2). Used as an
+/// extra source alongside the Popcorn API mirrors. Magnets are built from
+/// the returned info-hash plus the forced-tracker list below.
+public struct YTS {
+    static let base = "https://yts.mx/api/v2"
+    static let listMovies = "/list_movies.json"
+    static let movieDetails = "/movie_details.json"
+
+    /// Mirrors Popcorn-Desktop 0.5.1's `Settings.trackers.forced`. Appended to
+    /// every magnet so peers are discoverable even when the original .torrent
+    /// announces are dead. https://github.com/popcorn-official/popcorn-desktop
+    static let forcedTrackers: [String] = [
+        "udp://tracker.opentrackr.org:1337/announce",
+        "udp://tracker.tiny-vps.com:6969/announce",
+        "udp://tracker.openbittorrent.com:6969/announce",
+        "udp://p4p.arenabg.com:1337/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.torrent.eu.org:451/announce",
+        "udp://gbitt.info:80/announce",
+        "udp://open.stealth.si:80/announce",
+        "udp://dler.org:6969/announce",
+        "udp://explodie.org:6969/announce",
+        "udp://opentracker.i2p.rocks:6969/announce",
+        "udp://retracker.lanta-net.ru:2710/announce",
+        "wss://tracker.openwebtorrent.com",
+    ]
 }
 
 
