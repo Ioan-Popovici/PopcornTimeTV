@@ -19,26 +19,39 @@ class PreloadTorrentViewModel: ObservableObject {
     var torrent: Torrent
     var media: Media
     var watchedProgress: Float = 0.0
-    
+
     @Published var isProcessing = true
     @Published var progress: Float = 0.0
     @Published var speed: Int = 0
     @Published var seeds: Int = 0
     var streamer: PTTorrentStreamer?
-    
+
     @Published var error: Error?
     @Published var showError = false
     @Published var showFileToPlay = false
     @Published var filesToPlay: [String] = []
-    @Published var selectedFileToPlay: String?
+    @Published var selectedFileToPlay: String? {
+        didSet {
+            backgroundFileSelectionLock.withLock {
+                _backgroundSelectedFile = selectedFileToPlay
+            }
+        }
+    }
     @Published var playerModel: PlayerViewModel?
     @Published var clearCache = ClearCache()
-    
+
     var onReadyToPlay: (PlayerViewModel) -> Void
-    
+
+    // Storage that libtorrent's background thread (com.popcorntimetv.popcorntorrent.alerts)
+    // can read without crossing into MainActor isolation.
+    nonisolated(unsafe) private let mediaSnapshot: Media
+    nonisolated(unsafe) private var _backgroundSelectedFile: String?
+    nonisolated private let backgroundFileSelectionLock = NSLock()
+
     init(torrent: Torrent, media: Media, onReadyToPlay: @escaping (PlayerViewModel) -> Void) {
         self.torrent = torrent
         self.media = media
+        self.mediaSnapshot = media
         self.onReadyToPlay = onReadyToPlay
     }
     
@@ -177,37 +190,42 @@ class PreloadTorrentViewModel: ObservableObject {
         return false
     }
     
-    func selectFileToStream(fileNames: [String], fileSizes: [NSNumber]) -> Int32 {
+    /// Called from libtorrent's background alerts queue. Must remain `nonisolated`
+    /// so it can run there without tripping Swift 6's main-actor executor check.
+    nonisolated func selectFileToStream(fileNames: [String], fileSizes: [NSNumber]) -> Int32 {
         if fileNames.count == 1 {
             return Int32(0)
         }
-        
+
         var files = Array(zip(fileNames, fileSizes).enumerated())
-        
+
         /// for series, keep only files with format: E01
-        if let episode = self.media as? Episode {
+        if let episode = mediaSnapshot as? Episode {
             let findByEpisode = String(format: "E%02d", episode.episode)
-            files = files.filter { index, item in
+            files = files.filter { _, item in
                 item.0.lowercased().contains(findByEpisode.lowercased())
             }
         }
-        
+
         /// the biggest file
         let max = files.max { $0.element.1.int64Value < $1.element.1.int64Value  }
-        if let biggestFileIndex = max?.offset { //
+        if let biggestFileIndex = max?.offset {
             return Int32(biggestFileIndex)
         }
-        
+
         // let user select
-        DispatchQueue.main.async {
-            self.filesToPlay = fileNames
-            self.showFileToPlay = true
+        Task { @MainActor [weak self] in
+            self?.filesToPlay = fileNames
+            self?.showFileToPlay = true
         }
-        while self.selectedFileToPlay == nil {
-            sleep(1)
-            print("hold")
+
+        while true {
+            let selection = backgroundFileSelectionLock.withLock { _backgroundSelectedFile }
+            if selection != nil { break }
+            Thread.sleep(forTimeInterval: 1)
         }
-        let index = fileNames.firstIndex(of: self.selectedFileToPlay!)!
+        let selected = backgroundFileSelectionLock.withLock { _backgroundSelectedFile }!
+        let index = fileNames.firstIndex(of: selected) ?? 0
         return Int32(index)
     }
 }
