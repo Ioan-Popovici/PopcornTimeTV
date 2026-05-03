@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import ObjectMapper
 
 extension PopcornApi {
 
@@ -117,6 +118,74 @@ extension PopcornApi {
             throw APIError(type: .missingContent)
         }
         return merged
+    }
+
+    /// Hit `/movie/{imdb_id}/torrents` on every popcorn-api mirror in parallel
+    /// and merge with YTS's torrents. This is the dedicated torrent endpoint
+    /// Popcorn-Desktop 0.5.1 uses (the bare `/movie/{id}` endpoint returns
+    /// metadata-only on most mirrors, with no torrents at all).
+    open func getMovieTorrentsAggregated(imdbId: String) async throws -> [Torrent] {
+        let path = "\(Popcorn.movie)/\(imdbId)\(Popcorn.movieTorrents)"
+        let params: [String: any Sendable] = ["locale": "en", "contentLocale": "en"]
+        let frozenParams = params
+
+        async let popcornResults: [[Torrent]] = PopcornApi.aggregate { client in
+            let data = try await client.request(.get, path: path, parameters: frozenParams).responseData()
+            return PopcornApi.parseTorrentsResponse(data)
+        }
+        async let ytsTorrents: [Torrent]? = try? await YTSApi.shared.getMovieInfo(imdbId: imdbId).torrents
+
+        var lists = await popcornResults
+        if let yts = await ytsTorrents { lists.append(yts) }
+        return bestTorrents(across: lists)
+    }
+
+    /// Hit `/show/{imdb_id}/{season}/{episode}/torrents` on every mirror in
+    /// parallel and merge — the same per-episode endpoint Popcorn-Desktop
+    /// uses when the user opens a specific episode.
+    open func getEpisodeTorrentsAggregated(showImdbId: String, season: Int, episode: Int) async throws -> [Torrent] {
+        let path = "\(Popcorn.show)/\(showImdbId)/\(season)/\(episode)\(Popcorn.showTorrents)"
+        let params: [String: any Sendable] = ["locale": "en", "contentLocale": "en"]
+        let frozenParams = params
+
+        let popcornResults: [[Torrent]] = await PopcornApi.aggregate { client in
+            let data = try await client.request(.get, path: path, parameters: frozenParams).responseData()
+            return PopcornApi.parseTorrentsResponse(data)
+        }
+        return bestTorrents(across: popcornResults)
+    }
+
+    /// Parse the popcorn-api `/movie/{id}/torrents` (or per-episode) response.
+    /// The on-the-wire shape varies between mirrors:
+    ///   `{ "en": { "720p": {…}, "1080p": {…} } }`     locale-keyed, or
+    ///   `{ "720p": {…}, "1080p": {…} }`               quality-keyed direct.
+    /// We accept both and prefer English when a locale dict is present.
+    static func parseTorrentsResponse(_ data: Data) -> [Torrent] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+
+        var qualityDict: [String: [String: Any]] = [:]
+        // Locale-keyed: each value is itself a quality-keyed dict.
+        let nested = root.compactMapValues { $0 as? [String: [String: Any]] }
+        if !nested.isEmpty {
+            qualityDict = nested["en"] ?? nested.values.first ?? [:]
+        }
+        // Quality-keyed direct: each top-level value is a torrent payload.
+        if qualityDict.isEmpty {
+            for (key, value) in root {
+                if let torrent = value as? [String: Any] {
+                    qualityDict[key] = torrent
+                }
+            }
+        }
+
+        var torrents: [Torrent] = []
+        for (quality, payload) in qualityDict {
+            if var torrent = Torrent(JSON: payload) {
+                torrent.quality = quality
+                torrents.append(torrent)
+            }
+        }
+        return torrents
     }
 
     // MARK: - Shows
