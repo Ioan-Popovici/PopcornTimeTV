@@ -35,13 +35,12 @@ public struct VisualEffectBlur<Content: View>: View {
     }
     
     public var body: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+        Color.clear
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .center) {
                 content
             }
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: cornerRadius))
     }
     #endif
 }

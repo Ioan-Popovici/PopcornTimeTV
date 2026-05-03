@@ -104,7 +104,7 @@ struct PlayerControlsView: View {
         #endif
         .frame(maxWidth: 750)
         .padding([.leading, .trailing], 10)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .glassEffect(.regular, in: .capsule)
         .buttonStyle(.plain)
     }
     
