@@ -1,58 +1,47 @@
-#!/bin/sh
-# View latest releases on https://download.videolan.org/pub/cocoapods/prod/
-# or list them
-# curl "https://download.videolan.org/pub/cocoapods/prod/" | grep "3.5.1"
+#!/usr/bin/env bash
+# Fetch a prebuilt VLCKit drop for the requested platform.
+#
+# Usage: get-vlc-frameworks.sh <tv|ios|mac>
+# View available releases: https://download.videolan.org/pub/cocoapods/prod/
 
-mkdir -p "VLCKit"
-cd VLCKit
+set -euo pipefail
 
-IOS_VERSION="3.7.2-3e42ae47-79128878"
-TV_VERSION="3.7.2-3e42ae47-79128878"
-MAC_VERSION="3.7.2-3e42ae47-79128878"
+VERSION="3.7.2-3e42ae47-79128878"
+BASE_URL="https://download.videolan.org/pub/cocoapods/prod"
 
-TV_URL="https://download.videolan.org/pub/cocoapods/prod/TVVLCKit-${TV_VERSION}.tar.xz"
-iOS_URL="https://download.videolan.org/pub/cocoapods/prod/MobileVLCKit-${IOS_VERSION}.tar.xz"
-MAC_URL="https://download.videolan.org/pub/cocoapods/prod/VLCKit-${MAC_VERSION}.tar.xz"
+cd "$(dirname "$0")"
 
+usage() {
+  echo "Usage: $0 <tv|ios|mac>" >&2
+  exit 64
+}
 
-if [ "$1" == "tv" ] ; then
-    echo "${TV_VERSION}" > Manifest.lock
-    diff "tv-version.lock" "Manifest.lock" > /dev/null
-    if [ $? == 0 ] ; then
-        echo "SUCCESS TVVLCKit"
-        exit 0
-    fi
-    echo "Dowloading - TVVLCKit-${TV_VERSION}"
-    rm -rf "TVVLCKit-binary"
-    curl -s "${TV_URL}" | tar -xz -
-    echo "${TV_VERSION}" > tv-version.lock
-    echo "SUCCESS"
-elif [ "$1" == "ios" ] ; then
-    echo "${IOS_VERSION}" > Manifest.lock
-    diff "ios-version.lock" "Manifest.lock" > /dev/null
-    if [ $? == 0 ] ; then
-        echo "SUCCESS MobileVLCKit"
-        exit 0
-    fi
-    echo "Dowloading - MobileVLCKit-${IOS_VERSION}"
-    rm -rf "MobileVLCKit-binary"
-    curl -s "${iOS_URL}" | tar -xz -
-    echo "${IOS_VERSION}" > ios-version.lock
-    echo "SUCCESS"
-elif [ "$1" == "mac" ] ; then
-    echo "${MAC_VERSION}" > Manifest.lock
-    diff "mac-version.lock" "Manifest.lock" > /dev/null
-    if [ $? == 0 ] ; then
-        echo "SUCCESS VLCKit"
-        exit 0
-    fi
-    echo "Dowloading - VLCKit-${MAC_VERSION}"
-    rm -rf "VLCKit - binary package"
-    curl -s "${MAC_URL}" | tar -xz -
-    echo "${MAC_VERSION}" > mac-version.lock
-    echo "SUCCESS"
-else
-    echo "Missing argument: [tv, ios, mac]"
-    echo "Example:"
-    echo "$0 ios"
+[ $# -eq 1 ] || usage
+
+case "$1" in
+  tv)  archive="TVVLCKit-${VERSION}.tar.xz";    binary_dir="TVVLCKit-binary";    lock="tv-version.lock"  ;;
+  ios) archive="MobileVLCKit-${VERSION}.tar.xz"; binary_dir="MobileVLCKit-binary"; lock="ios-version.lock" ;;
+  mac) archive="VLCKit-${VERSION}.tar.xz";       binary_dir="VLCKit - binary package"; lock="mac-version.lock" ;;
+  *)   usage ;;
+esac
+
+# `Manifest.lock` lets `actions/cache` invalidate when the version changes.
+echo "${VERSION}" > Manifest.lock
+
+if [ -f "${lock}" ] && diff -q "${lock}" Manifest.lock >/dev/null 2>&1 && [ -d "${binary_dir}" ]; then
+  echo "VLCKit ${VERSION} already present for $1"
+  exit 0
 fi
+
+echo "Downloading ${archive}"
+rm -rf "${binary_dir}"
+
+curl -fsSL --retry 3 --retry-delay 2 "${BASE_URL}/${archive}" | tar -xz -
+
+if [ ! -d "${binary_dir}" ]; then
+  echo "ERROR: ${binary_dir} missing after extraction" >&2
+  exit 1
+fi
+
+echo "${VERSION}" > "${lock}"
+echo "VLCKit ${VERSION} ready for $1"

@@ -1,0 +1,86 @@
+name: Bug report
+description: Report a reproducible bug.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out a bug report.
+        Please search existing issues before opening a new one.
+
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      placeholder: "4.0 (1)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - tvOS
+        - iOS / iPadOS
+        - macOS
+    validations:
+      required: true
+
+  - type: input
+    id: os_version
+    attributes:
+      label: OS version
+      placeholder: "macOS 26.4.1 (25E253)"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: "MacBook Pro M1 Pro / Apple TV 4K (3rd gen) / iPhone 16 Pro"
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What did you think the app was going to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What does the app do instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Crash log / console output
+      description: Paste any relevant crash report or logs (drag-and-drop the .ips file or a backtrace).
+      render: text
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues for duplicates.
+          required: true
+        - label: I am running the latest available build.
+          required: true

@@ -1,0 +1,40 @@
+# Matches the conventions in CONTRIBUTING.md.
+# https://github.com/nicklockwood/SwiftFormat
+
+--swiftversion 6.0
+
+# Drop "self." outside of closures (CONTRIBUTING.md rule).
+--self remove
+--selfrequired @escaping
+
+# Brace placement on the same line as the declaration.
+--allman false
+
+# Drop the explicit `init` keyword on initializer calls.
+--redundantinit enabled
+
+# Layout
+--indent 4
+--maxwidth 140
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--commas inline
+--trimwhitespace always
+
+# Generally helpful rules.
+--enable redundantSelf
+--enable redundantParens
+--enable redundantReturn
+--enable redundantType
+--enable strongifiedSelf
+--enable trailingCommas
+--enable typeSugar
+--enable unusedArguments
+--enable wrap
+--enable wrapAttributes
+
+# Skip generated and vendored code.
+--exclude PopcornKit/.build
+--exclude build
+--exclude VLCKit
