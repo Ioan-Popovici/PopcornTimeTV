@@ -55,19 +55,15 @@ class MovieDetailsViewModel: ObservableObject, CharacterHeadshotLoader, MediaRat
                 async let related = TraktApi.shared.getRelated(self.movie)
                 async let people = TraktApi.shared.getPeople(forMediaOfType: .movies, id: self.movie.id)
                 
-                var movie = try await PopcornKit.getMovieInfo(movie.id)
-                // popcorn-api's /movie/{id} strips torrents (desktop hits
-                // /movie/{id}/torrents for those). Union with the catalog's
-                // torrents — the search/listing response usually has them
-                // populated — so playback still works when the detail call
-                // returns a torrent-less variant.
-                let detailUrls = Set(movie.torrents.map(\.url))
-                let preserved = self.movie.torrents.filter { !detailUrls.contains($0.url) }
-                movie.torrents = (movie.torrents + preserved).sorted(by: <)
-                movie.ratings = self.movie.ratings
-                movie.largeBackgroundImage = self.movie.largeBackgroundImage ?? movie.largeBackgroundImage //keep last background
-                self.movie = movie
-                self.downloadModel = DownloadButtonViewModel(media: movie)
+                // Popcorn-Desktop 0.5.1 doesn't refetch the bare `/movie/{id}`
+                // (its `detail()` resolves to `old_data`); it only refreshes
+                // torrents via `/movie/{id}/torrents`. We do the same: keep
+                // the catalog metadata and union the torrents.
+                let freshTorrents = (try? await PopcornKit.getMovieTorrents(movie.id)) ?? []
+                let existingUrls = Set(self.movie.torrents.map(\.url))
+                let unique = freshTorrents.filter { !existingUrls.contains($0.url) }
+                self.movie.torrents = (self.movie.torrents + unique).sorted(by: <)
+                self.downloadModel = DownloadButtonViewModel(media: self.movie)
                 
                 let persons = (try? await people) ?? (actors: [], crew: [])
                 self.related = (try? await related) ?? []

@@ -153,22 +153,23 @@ public struct YTS {
     static let listMovies = "/list_movies.json"
     static let movieDetails = "/movie_details.json"
 
-    /// Mirrors Popcorn-Desktop 0.5.1's `Settings.trackers.forced`. Appended to
-    /// every magnet so peers are discoverable even when the original .torrent
-    /// announces are dead. https://github.com/popcorn-official/popcorn-desktop
+    /// Mirrors Popcorn-Desktop 0.5.1's `Settings.trackers.forced` exactly.
+    /// Appended to every magnet so peers are discoverable even when the
+    /// original .torrent announces are dead.
+    /// Source: PopcornTimeDesktop/src/app/settings.js
     static let forcedTrackers: [String] = [
-        "udp://tracker.opentrackr.org:1337/announce",
-        "udp://tracker.tiny-vps.com:6969/announce",
-        "udp://tracker.openbittorrent.com:6969/announce",
-        "udp://p4p.arenabg.com:1337/announce",
-        "udp://exodus.desync.com:6969/announce",
-        "udp://tracker.torrent.eu.org:451/announce",
-        "udp://gbitt.info:80/announce",
-        "udp://open.stealth.si:80/announce",
-        "udp://dler.org:6969/announce",
-        "udp://explodie.org:6969/announce",
-        "udp://opentracker.i2p.rocks:6969/announce",
-        "udp://retracker.lanta-net.ru:2710/announce",
+        "udp://tracker.opentrackr.org:1337",
+        "udp://tracker.openbittorrent.com:1337",
+        "udp://p4p.arenabg.com:1337",
+        "udp://exodus.desync.com:6969",
+        "udp://tracker.torrent.eu.org:451",
+        "udp://tracker-udp.gbitt.info:80",
+        "udp://open.stealth.si:80",
+        "udp://tracker.dler.org:6969",
+        "udp://explodie.org:6969",
+        "udp://tracker.therarbg.to:6969",
+        "udp://tracker.bittor.pw:1337",
+        "udp://tr4ck3r.duckdns.org:6969",
         "wss://tracker.openwebtorrent.com",
     ]
 }
@@ -178,8 +179,10 @@ public struct Popcorn {
     static let base = "https://uxert.link"
     static let movies = "/movies"
     static let movie = "/movie"
+    static let movieTorrents = "/torrents" // appended after /movie/{id}
     static let shows = "/shows"
     static let show = "/show"
+    static let showTorrents = "/torrents" // appended after /show/{id}/{season}/{episode}
     static let status = "/status"
     
     /// Possible orders used in API call.

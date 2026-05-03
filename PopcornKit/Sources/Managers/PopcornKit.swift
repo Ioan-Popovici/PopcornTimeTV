@@ -56,6 +56,17 @@ public func getMovieInfo(_ imdbId: String) async throws -> Movie {
     try await PopcornApi.shared.getMovieInfoAggregated(imdbId)
 }
 
+/// Refresh torrents for a movie via the dedicated `/movie/{id}/torrents`
+/// endpoint Popcorn-Desktop 0.5.1 uses, plus YTS as a parallel source.
+public func getMovieTorrents(_ imdbId: String) async throws -> [Torrent] {
+    try await PopcornApi.shared.getMovieTorrentsAggregated(imdbId: imdbId)
+}
+
+/// Refresh torrents for a single episode via `/show/{id}/{s}/{e}/torrents`.
+public func getEpisodeTorrents(showImdbId: String, season: Int, episode: Int) async throws -> [Torrent] {
+    try await PopcornApi.shared.getEpisodeTorrentsAggregated(showImdbId: showImdbId, season: season, episode: episode)
+}
+
 /**
  Download torrent file from link.
  
