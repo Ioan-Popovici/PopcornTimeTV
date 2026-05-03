@@ -4,12 +4,12 @@ import Foundation
 import ObjectMapper
 
 private struct Static {
-    static var episodeInstance: WatchedlistManager<Episode>? = WatchedlistManager<Episode>()
-    static var movieInstance: WatchedlistManager<Movie>? = WatchedlistManager<Movie>()
+    nonisolated(unsafe) static var episodeInstance: WatchedlistManager<Episode>? = WatchedlistManager<Episode>()
+    nonisolated(unsafe) static var movieInstance: WatchedlistManager<Movie>? = WatchedlistManager<Movie>()
 }
 
 /// Class for managing a users watch history. **Only available for movies, and episodes**.
-open class WatchedlistManager<N: Media & Hashable> {
+open class WatchedlistManager<N: Media & Hashable>: @unchecked Sendable {
     
     private let currentType: Trakt.MediaType
     
@@ -49,8 +49,9 @@ open class WatchedlistManager<N: Media & Hashable> {
      - Parameter id: The imdbId or tvdbId of the movie or episode.
      */
     open func add(_ id: String) {
+        let type = currentType
         Task {
-            try? await TraktApi.shared.add(id, toWatchedlistOfType: currentType)
+            try? await TraktApi.shared.add(id, toWatchedlistOfType: type)
         }
         var array = UserDefaults.standard.object(forKey: "\(currentType.rawValue)Watchedlist") as? [String] ?? [String]()
         !array.contains(id) ? array.append(id) : ()
@@ -63,9 +64,10 @@ open class WatchedlistManager<N: Media & Hashable> {
      - Parameter id: The imdbId for movie or tvdbId for episode.
      */
     open func remove(_ id: String) {
+        let type = currentType
         Task {
-            try? await TraktApi.shared.remove(id, fromWatchedlistOfType: currentType)
-            try? await TraktApi.shared.scrobble(id, progress: 0, type: currentType, status: .finished)
+            try? await TraktApi.shared.remove(id, fromWatchedlistOfType: type)
+            try? await TraktApi.shared.scrobble(id, progress: 0, type: type, status: .finished)
         }
         var array = UserDefaults.standard.object(forKey: "\(currentType.rawValue)Watchedlist") as? [String] ?? []
         var dict = UserDefaults.standard.object(forKey: "\(currentType.rawValue)Progress") as? [String: Float] ?? [:]
@@ -122,8 +124,9 @@ open class WatchedlistManager<N: Media & Hashable> {
      - Parameter status:    The status of the item.
      */
     open func setCurrentProgress(_ progress: Float, for id: String, with status: Trakt.WatchedStatus) {
+        let type = currentType
         Task {
-            progress <= 0.8 ? try? await TraktApi.shared.scrobble(id, progress: progress, type: currentType, status: status) : ()
+            progress <= 0.8 ? try? await TraktApi.shared.scrobble(id, progress: progress, type: type, status: status) : ()
         }
         var dict = UserDefaults.standard.object(forKey: "\(currentType.rawValue)Progress") as? [String: Float] ?? [String: Float]()
         let _ = progress == 0 ? dict.removeValue(forKey: id) : dict.updateValue(progress, forKey: id)

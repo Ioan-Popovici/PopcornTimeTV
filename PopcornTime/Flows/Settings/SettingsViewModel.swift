@@ -10,6 +10,7 @@ import SwiftUI
 import PopcornKit
 import Network
 
+@MainActor
 class SettingsViewModel: ObservableObject {
     @Published var clearCache = ClearCache()
     

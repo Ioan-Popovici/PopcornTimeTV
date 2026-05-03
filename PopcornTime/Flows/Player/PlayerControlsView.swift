@@ -58,15 +58,14 @@ struct PlayerControlsView: View {
         #if os(iOS)
         let multiplier = UIDevice.current.userInterfaceIdiom == .phone ? 0.8 : 1
         Spacer()
-        HStack(spacing: 60) {
-            Group {
-                rewindButton(width: 55 * multiplier, imageInset: 20)
-                playButton(width: 90 * multiplier, imageInset: 25)
-                forwardButton(width: 55 * multiplier, imageInset: 20)
-            }
-            .background {
-                Circle()
-                    .fill(Color(white: 0.2, opacity: 0.5))
+        GlassEffectContainer(spacing: 60) {
+            HStack(spacing: 60) {
+                Group {
+                    rewindButton(width: 55 * multiplier, imageInset: 20)
+                    playButton(width: 90 * multiplier, imageInset: 25)
+                    forwardButton(width: 55 * multiplier, imageInset: 20)
+                }
+                .glassEffect(.regular.interactive(), in: .circle)
             }
         }
         .buttonStyle(.plain)
@@ -105,11 +104,7 @@ struct PlayerControlsView: View {
         #endif
         .frame(maxWidth: 750)
         .padding([.leading, .trailing], 10)
-        .background {
-            Color.clear
-                .background(.regularMaterial)
-                .cornerRadius(10)
-        }
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
         .buttonStyle(.plain)
     }
     

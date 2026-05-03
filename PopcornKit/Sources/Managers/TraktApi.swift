@@ -4,7 +4,7 @@ import ObjectMapper
 import SwiftyJSON
 import Foundation
 
-open class TraktApi {
+open class TraktApi: @unchecked Sendable {
 
     /// Creates new instance of TraktManager class
     public static let shared = TraktApi()

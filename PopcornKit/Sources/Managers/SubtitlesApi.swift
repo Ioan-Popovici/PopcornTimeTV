@@ -20,7 +20,7 @@ private struct SubtitlesResponse: Mappable {
     }
 }
 
-open class SubtitlesApi {
+open class SubtitlesApi: @unchecked Sendable {
     
     /// Creates new instance of SubtitlesManager class
     public static let shared = SubtitlesApi()

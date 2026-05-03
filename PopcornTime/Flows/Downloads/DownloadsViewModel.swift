@@ -11,9 +11,10 @@ import PopcornTorrent
 import PopcornKit
 import MediaPlayer
 
+@MainActor
 class DownloadsViewModel: NSObject, ObservableObject {
     @Published var error: Error?
-    var downloadManager = PTTorrentDownloadManager.shared()
+    nonisolated(unsafe) var downloadManager = PTTorrentDownloadManager.shared()
     
     @Published var completedMovies: [PTTorrentDownload] = []
     @Published var downloading: [PTTorrentDownload] = []
@@ -56,17 +57,17 @@ class DownloadsViewModel: NSObject, ObservableObject {
     
 }
 
-extension DownloadsViewModel: PTTorrentDownloadManagerListener {
-    func downloadStatusDidChange(_ downloadStatus: PTTorrentDownloadStatus, for download: PTTorrentDownload) {
-        DispatchQueue.main.async {
-            self.reload()
+extension DownloadsViewModel: @preconcurrency PTTorrentDownloadManagerListener {
+    nonisolated func downloadStatusDidChange(_ downloadStatus: PTTorrentDownloadStatus, for download: PTTorrentDownload) {
+        Task { @MainActor [weak self] in
+            self?.reload()
         }
     }
-    
-    func downloadDidFail(_ download: PTTorrentDownload, withError error: Error) {
-        DispatchQueue.main.async {
-            self.error = error
-            self.reload()
+
+    nonisolated func downloadDidFail(_ download: PTTorrentDownload, withError error: Error) {
+        Task { @MainActor [weak self] in
+            self?.error = error
+            self?.reload()
         }
     }
 }

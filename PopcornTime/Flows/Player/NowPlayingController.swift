@@ -18,10 +18,11 @@ import VLCKit
 import PopcornKit
 import Kingfisher
 
+@MainActor
 class NowPlayingController {
     private(set) var mediaplayer: VLCMediaPlayer
     private(set) var media: Media
-    private var imageGenerator: AVAssetImageGenerator
+    nonisolated(unsafe) private var imageGenerator: AVAssetImageGenerator
     var onPlayPause: () -> Void = {}
     
     private(set) var mediaThumbnailer: VLCMediaThumbnailer?
@@ -157,7 +158,7 @@ class NowPlayingController {
         return fabsf(remaining) + elapsed
     }
     
-    func screenshotAtTime(_ time: NSNumber) async -> CGImage? {
+    nonisolated func screenshotAtTime(_ time: NSNumber) async -> CGImage? {
         let cmTime = CMTimeMakeWithSeconds(time.doubleValue / 1000.0, preferredTimescale: 1000)
         return try? await imageGenerator.image(at: cmTime).image
     }
@@ -168,7 +169,7 @@ class NowPlayingController {
     }
 }
 
-extension NowPlayingController: VLCMediaThumbnailerDelegate {
+extension NowPlayingController: @preconcurrency VLCMediaThumbnailerDelegate {
     func vlcScreenshotAtPercentage(_ percentage: Float, completion: @escaping (_ image: CGImage) -> Void) {
         guard let media = mediaplayer.media else { return }
         

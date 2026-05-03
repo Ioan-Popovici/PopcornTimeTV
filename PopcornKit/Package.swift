@@ -1,10 +1,10 @@
-// swift-tools-version:6.0
+// swift-tools-version:6.2
 import PackageDescription
 
 let package = Package(
     name: "PopcornKit",
     platforms: [
-        .iOS(.v18), .tvOS(.v18), .macOS(.v15)
+        .iOS(.v26), .tvOS(.v26), .macOS(.v26)
     ],
     products: [
         .library(name: "PopcornKit", targets: ["PopcornKit"]),
@@ -19,7 +19,7 @@ let package = Package(
             dependencies: ["SwiftyJSON", "ObjectMapper"],
             path: "Sources",
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6)
             ]
         )
     ]

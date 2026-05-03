@@ -8,8 +8,8 @@
 import Foundation
 
 
-public class TraktAuthApi {
-    public static var shared = TraktAuthApi()
+public class TraktAuthApi: @unchecked Sendable {
+    nonisolated(unsafe) public static var shared = TraktAuthApi()
     
     /// OAuth state parameter added for extra security against cross site forgery.
     fileprivate var state: String?

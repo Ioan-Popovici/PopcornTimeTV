@@ -36,7 +36,8 @@ public struct VisualEffectBlur<Content: View>: View {
     
     public var body: some View {
         Rectangle()
-            .fill(.regularMaterial).cornerRadius(cornerRadius)
+            .fill(Color.clear)
+            .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .center) {
                 content
@@ -87,6 +88,7 @@ extension VisualEffectBlur {
 #if os(tvOS)  || os(iOS)
 // MARK: - Coordinator
 extension VisualEffectBlur.Representable {
+    @MainActor
     class Coordinator {
         let blurView = UIVisualEffectView()
         let hostingController: UIHostingController<RepContent>
@@ -122,6 +124,7 @@ public extension VisualEffectBlur where Content == EmptyView {
 #elseif os(macOS)
 // MARK: - Coordinator
 extension VisualEffectBlur.Representable {
+    @MainActor
     class Coordinator {
         let material: NSVisualEffectView.Material = .contentBackground
         let blendingMode: NSVisualEffectView.BlendingMode = .withinWindow

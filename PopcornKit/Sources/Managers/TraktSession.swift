@@ -2,8 +2,8 @@
 
 import Foundation
 
-public class TraktSession {
-    public static var shared  = TraktSession()
+public class TraktSession: @unchecked Sendable {
+    nonisolated(unsafe) public static var shared = TraktSession()
     var refreshTask: Task<OAuthCredential, Error>?
     
     private var credentials: OAuthCredential? = {

@@ -10,6 +10,7 @@ import PopcornKit
 import SwiftUI
 import Combine
 
+@MainActor
 class ShowDetailsViewModel: ObservableObject {
     @Published var show: Show
     @Published var error: Error?

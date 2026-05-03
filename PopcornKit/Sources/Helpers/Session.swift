@@ -9,18 +9,38 @@
 import Foundation
 
 enum Session {
-    
-    @UserDefault(key: "traktCredentials", defaultValue: nil)
-    static var traktCredentials: Data?
-    
-    @UserDefault(key: "skipReleaseVersion", defaultValue: nil)
-    static var skipReleaseVersion: Data?
-    
+
+    static var traktCredentials: Data? {
+        get { UserDefaults.standard.data(forKey: "traktCredentials") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "traktCredentials") }
+            else { UserDefaults.standard.removeObject(forKey: "traktCredentials") }
+        }
+    }
+
+    static var skipReleaseVersion: Data? {
+        get { UserDefaults.standard.data(forKey: "skipReleaseVersion") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "skipReleaseVersion") }
+            else { UserDefaults.standard.removeObject(forKey: "skipReleaseVersion") }
+        }
+    }
+
     // last valid url
-    @UserDefault(key: "popcornUrl", defaultValue: nil)
-    static var lastPopcornBaseUrl: String?
-    
+    static var lastPopcornBaseUrl: String? {
+        get { UserDefaults.standard.string(forKey: "popcornUrl") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "popcornUrl") }
+            else { UserDefaults.standard.removeObject(forKey: "popcornUrl") }
+        }
+    }
+
     // urls separated by comma
-    @UserDefault(key: "popcornUrls", defaultValue: nil)
-    static var popcornBaseUrls: String?
+    static var popcornBaseUrls: String? {
+        get { UserDefaults.standard.string(forKey: "popcornUrls") }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: "popcornUrls") }
+            else { UserDefaults.standard.removeObject(forKey: "popcornUrls") }
+        }
+    }
 }

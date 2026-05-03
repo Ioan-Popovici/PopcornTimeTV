@@ -12,6 +12,7 @@ import AVKit
 import SwiftUI
 import Combine
 
+@MainActor
 class MovieDetailsViewModel: ObservableObject, CharacterHeadshotLoader, MediaRatingsLoader, MediaPosterLoader {
     @Published var movie: Movie
     @Published var error: Error?

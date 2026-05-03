@@ -59,7 +59,7 @@ class PlayerAudioModel {
     }
     
     func didSelectEqualizerProfile(_ profile: EqualizerProfiles) {
-        mediaplayer.resetEqualizer(fromProfile: profile.rawValue)
-        mediaplayer.equalizerEnabled = true
+        let equalizer = VLCAudioEqualizer(preset: VLCAudioEqualizer.presets[Int(profile.rawValue)])
+        mediaplayer.equalizer = equalizer
     }
 }

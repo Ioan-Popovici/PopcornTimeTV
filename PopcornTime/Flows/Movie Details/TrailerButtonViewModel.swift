@@ -10,6 +10,7 @@ import SwiftUI
 import AVKit
 import PopcornKit
 
+@MainActor
 class TrailerButtonViewModel: ObservableObject {
     var media: Media
     var trailerCode: String?

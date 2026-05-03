@@ -6,7 +6,7 @@ import ObjectMapper
 /**
  Health of a torrent.
  */
-public enum Health {
+public enum Health: Sendable {
     /// Low number of seeds and peers.
     case bad
     /// Moderate number of seeds and peers.
@@ -34,7 +34,7 @@ public enum Health {
     }
 }
 
-public struct Torrent: Mappable, Equatable, Comparable {
+public struct Torrent: Mappable, Equatable, Comparable, Sendable {
     
     /// Health of the torrent.
     public let health: Health

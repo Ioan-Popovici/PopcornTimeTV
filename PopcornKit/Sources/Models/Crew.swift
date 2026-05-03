@@ -86,7 +86,7 @@ extension Crew: Hashable {
 //    return rhs.imdbId == lhs.imdbId
 //}
 
-public enum Role: String {
+public enum Role: String, Sendable {
     case artist = "art"
     case cameraman = "camera"
     case designer = "costume & make-up"

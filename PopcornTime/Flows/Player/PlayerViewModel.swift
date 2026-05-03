@@ -31,6 +31,7 @@ enum TransportBarHint: String {
 }
 
 
+@MainActor
 class PlayerViewModel: NSObject, ObservableObject {
     var media: Media
     private(set) var mediaplayer = VLCMediaPlayer()
@@ -42,7 +43,7 @@ class PlayerViewModel: NSObject, ObservableObject {
     
     private var idleWorkItem: DispatchWorkItem?
     internal var workItem: DispatchWorkItem?
-    internal var torrentStatusChangeObserver: AnyObject?
+    nonisolated(unsafe) internal var torrentStatusChangeObserver: AnyObject?
     
     internal var startPosition: Float = 0.0
     var resumePlayback = false
@@ -370,7 +371,7 @@ class PlayerViewModel: NSObject, ObservableObject {
     }
 }
 
-extension PlayerViewModel: VLCMediaPlayerDelegate {
+extension PlayerViewModel: @preconcurrency VLCMediaPlayerDelegate {
     
     func mediaPlayerTimeChanged(_ aNotification: Notification) {
         if isLoading {

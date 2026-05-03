@@ -17,6 +17,7 @@ import VLCKit
 #endif
 import PopcornKit
 
+@MainActor
 class PlayerSubtitleModel {
     private(set) var media: Media
     private(set) var mediaplayer: VLCMediaPlayer

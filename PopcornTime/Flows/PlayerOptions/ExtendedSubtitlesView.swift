@@ -74,7 +74,7 @@ struct ExtendedSubtitlesView: View {
             Button(action: {
                 self.showLanguageAlert = true
             }, label: {
-                Text(currentSubtitle?.language ?? "None".localized) + Text(" ❯")
+                Text("\(currentSubtitle?.language ?? "None".localized) ❯")
                     .font(.system(size: theme.contentFontSize, weight: .regular))
             })
                 .buttonStyle(PlainButtonStyle(onFocus: {}))

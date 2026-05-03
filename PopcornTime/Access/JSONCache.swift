@@ -12,7 +12,7 @@ import Foundation
 /// - saving -- `JSONCache.creditCards.saveToFile(cards)`
 enum JSONCache {
     
-    private static var operationsQueues = [String : DispatchQueue]()
+    nonisolated(unsafe) private static var operationsQueues = [String : DispatchQueue]()
     
 //    static var bookingHistory: CodableCaching<[Booking]> {
 //        return userResource()

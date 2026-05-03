@@ -39,7 +39,7 @@ public struct Trakt {
             return Authorization
         }
     }
-    public enum MediaType: String {
+    public enum MediaType: String, Sendable {
         case movies = "movies"
         case shows = "shows"
         case episodes = "episodes"
@@ -52,7 +52,7 @@ public struct Trakt {
      - .paused:     When the video is paused.
      - .finished:   When the video is stopped or finishes playing on its own.
      */
-    public enum WatchedStatus: String {
+    public enum WatchedStatus: String, Sendable {
         /// When the video intially starts playing or is unpaused.
         case watching = "start"
         /// When the video is paused.
@@ -162,7 +162,7 @@ public struct Popcorn {
     }
     
     /// Possible filters used in API call.
-    public enum Filters: String, CaseIterable {
+    public enum Filters: String, CaseIterable, Sendable {
         case popularity = "popularity"
         case year = "year"
         case date = "updated"
@@ -186,7 +186,7 @@ public struct Popcorn {
     }
     
     /// Possible genres used in API call.
-    public enum Genres: String, Hashable, CaseIterable {
+    public enum Genres: String, Hashable, CaseIterable, Sendable {
         case all = "All"
         case action = "Action"
         case adventure = "Adventure"
