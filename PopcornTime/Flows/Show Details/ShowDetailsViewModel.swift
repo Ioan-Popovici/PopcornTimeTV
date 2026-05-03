@@ -68,6 +68,19 @@ class ShowDetailsViewModel: ObservableObject {
                 var show = try await PopcornKit.getShowInfo(show.id)
                 show.largeBackgroundImage = self.show.largeBackgroundImage ?? show.largeBackgroundImage //keep last background
                 show.ratings = self.show.ratings
+                // popcorn-api's /show/{id} sometimes strips per-episode torrents.
+                // Union with whatever we already had from the listing so episodes
+                // remain playable.
+                let previousByKey = Dictionary(uniqueKeysWithValues: self.show.episodes.map { (Self.episodeKey($0), $0) })
+                show.episodes = show.episodes.map { ep in
+                    var merged = ep
+                    if let prev = previousByKey[Self.episodeKey(ep)] {
+                        let detailUrls = Set(merged.torrents.map(\.url))
+                        let preserved = prev.torrents.filter { !detailUrls.contains($0.url) }
+                        merged.torrents = (merged.torrents + preserved).sorted(by: <)
+                    }
+                    return merged
+                }
                 self.show = show
                 self.didLoad = true
                 
@@ -94,6 +107,10 @@ class ShowDetailsViewModel: ObservableObject {
         }
     }
     
+    private static func episodeKey(_ ep: Episode) -> String {
+        "\(ep.season)x\(ep.episode)"
+    }
+
     func playSongTheme() {
         if let tvdbId = Int(show.tvdbId) {
             ThemeSongManager.shared.playShowTheme(tvdbId)
