@@ -56,6 +56,14 @@ class MovieDetailsViewModel: ObservableObject, CharacterHeadshotLoader, MediaRat
                 async let people = TraktApi.shared.getPeople(forMediaOfType: .movies, id: self.movie.id)
                 
                 var movie = try await PopcornKit.getMovieInfo(movie.id)
+                // popcorn-api's /movie/{id} strips torrents (desktop hits
+                // /movie/{id}/torrents for those). Union with the catalog's
+                // torrents — the search/listing response usually has them
+                // populated — so playback still works when the detail call
+                // returns a torrent-less variant.
+                let detailUrls = Set(movie.torrents.map(\.url))
+                let preserved = self.movie.torrents.filter { !detailUrls.contains($0.url) }
+                movie.torrents = (movie.torrents + preserved).sorted(by: <)
                 movie.ratings = self.movie.ratings
                 movie.largeBackgroundImage = self.movie.largeBackgroundImage ?? movie.largeBackgroundImage //keep last background
                 self.movie = movie
