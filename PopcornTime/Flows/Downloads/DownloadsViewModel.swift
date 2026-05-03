@@ -57,7 +57,7 @@ class DownloadsViewModel: NSObject, ObservableObject {
     
 }
 
-extension DownloadsViewModel: @preconcurrency PTTorrentDownloadManagerListener {
+extension DownloadsViewModel: PTTorrentDownloadManagerListener {
     nonisolated func downloadStatusDidChange(_ downloadStatus: PTTorrentDownloadStatus, for download: PTTorrentDownload) {
         Task { @MainActor [weak self] in
             self?.reload()

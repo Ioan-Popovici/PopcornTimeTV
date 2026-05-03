@@ -42,7 +42,7 @@ struct CodableCaching<T> {
     }
 }
 
-extension CodableCaching where T: Codable {
+extension CodableCaching where T: Codable & Sendable {
     /// load json file from disk and tranlate into an mappable object
     func loadFromFile() -> T? {
         let path = filePath as String

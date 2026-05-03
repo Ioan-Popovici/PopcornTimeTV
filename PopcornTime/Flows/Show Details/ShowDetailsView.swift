@@ -194,32 +194,34 @@ struct ShowDetailsView: View, MediaPosterLoader {
     }
     
     func actionButtons(scroll: ScrollViewProxy?) -> some View {
-        HStack(spacing: 24) {
-            if viewModel.didLoad {
-                TrailerButton(viewModel: viewModel.trailerModel)
-                
-                if let episode = viewModel.nextEpisodeToWatch() {
-                    PlayButton(media: episode)
+        GlassEffectContainer(spacing: 24) {
+            HStack(spacing: 24) {
+                if viewModel.didLoad {
+                    TrailerButton(viewModel: viewModel.trailerModel)
+
+                    if let episode = viewModel.nextEpisodeToWatch() {
+                        PlayButton(media: episode)
+                    }
+                    if viewModel.show.seasonNumbers.count > 1 {
+                        seasonsButton
+                    }
+                    watchlistButton
                 }
-                if viewModel.show.seasonNumbers.count > 1 {
-                    seasonsButton
+                if viewModel.isLoading {
+                    ProgressView()
+                        .padding(.leading, 50)
+                        .padding(.bottom, 40)
+                        .hideIfCompactSize()
                 }
-                watchlistButton
             }
-            if viewModel.isLoading {
-                ProgressView()
-                    .padding(.leading, 50)
-                    .padding(.bottom, 40)
-                    .hideIfCompactSize()
-            }
+            .buttonStyle(TVButtonStyle(onFocus: {
+                #if os(tvOS)
+                withAnimation {
+                    scroll?.scrollTo(sectionInfo, anchor: .top)
+                }
+                #endif
+            }))
         }
-        .buttonStyle(TVButtonStyle(onFocus: {
-            #if os(tvOS)
-            withAnimation {
-                scroll?.scrollTo(sectionInfo, anchor: .top)
-            }
-            #endif
-        }))
     }
     
     var seasonsButton: some View {

@@ -104,8 +104,7 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
                 action(torrent)
             } label: {
                 #if os(iOS) || os(tvOS)
-                Text(torrent.quality) +
-                Text(" (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
+                Text(verbatim: "\(torrent.quality ?? "") (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
                 #elseif os(macOS)
                 torrent.health.image
                 Text(torrent.quality)

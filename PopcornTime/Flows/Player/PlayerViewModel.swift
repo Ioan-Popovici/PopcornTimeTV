@@ -9,14 +9,14 @@
 import Foundation
 import PopcornKit
 #if os(tvOS)
-import TVVLCKit
+@preconcurrency import TVVLCKit
 #elseif os(iOS)
-import MobileVLCKit
+@preconcurrency import MobileVLCKit
 #elseif os(macOS)
-import VLCKit
+@preconcurrency import VLCKit
 typealias SiriRemoteGestureRecognizer = Any
 #endif
-import PopcornTorrent
+@preconcurrency import PopcornTorrent
 import AVKit
 import MediaPlayer
 import SwiftUI
@@ -107,11 +107,14 @@ class PlayerViewModel: NSObject, ObservableObject {
             self?.playandPause()
         }
         
-        torrentStatusChangeObserver = NotificationCenter.default.addObserver(forName: .PTTorrentStatusDidChange, object: streamer, queue: nil) { [unowned self] notification in
-            guard !resumePlaybackAlert else { // will trigger UI invalidation - and screen becomes unresponsive
-                return
+        torrentStatusChangeObserver = NotificationCenter.default.addObserver(forName: .PTTorrentStatusDidChange, object: streamer, queue: nil) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard !self.resumePlaybackAlert else { // will trigger UI invalidation - and screen becomes unresponsive
+                    return
+                }
+                self.progress.bufferProgress = self.streamer.torrentStatus.totalProgress
             }
-            progress.bufferProgress = streamer.torrentStatus.totalProgress
         }
     }
     
@@ -357,7 +360,9 @@ class PlayerViewModel: NSObject, ObservableObject {
                 .compactMap { ($0 as? UIWindowScene)?.keyWindow?.screen }
                 .first ?? connectedScreens.first
             let externalScreen = connectedScreens.first { $0 !== primaryScreen }
-            let screen = externalScreen ?? primaryScreen ?? UIScreen.main
+            guard let screen = externalScreen ?? primaryScreen ?? connectedScreens.first else {
+                return
+            }
             let size = screen.bounds.size
             mediaplayer.videoCropGeometry = UnsafeMutablePointer<Int8>(mutating: (size.vlcAspectRatio as NSString).utf8String)
 //            screenshotImageView!.contentMode = .scaleAspectFill
