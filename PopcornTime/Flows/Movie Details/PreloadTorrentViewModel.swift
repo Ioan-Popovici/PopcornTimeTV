@@ -44,7 +44,7 @@ class PreloadTorrentViewModel: ObservableObject {
 
     // Storage that libtorrent's background thread (com.popcorntimetv.popcorntorrent.alerts)
     // can read without crossing into MainActor isolation.
-    nonisolated(unsafe) private let mediaSnapshot: Media
+    nonisolated private let mediaSnapshot: Media
     nonisolated(unsafe) private var _backgroundSelectedFile: String?
     nonisolated private let backgroundFileSelectionLock = NSLock()
 
@@ -136,6 +136,12 @@ class PreloadTorrentViewModel: ObservableObject {
         
         if url.hasPrefix("magnet") || (url.hasSuffix(".torrent") && !url.hasPrefix("http")) {
             self.streamer = PTTorrentStreamer()
+            // PTTorrentStreamerSelection is invoked from libtorrent's background queue.
+            // Declare the closure @Sendable so Swift 6 doesn't inherit @MainActor from
+            // play()'s context. selectFileToStream is itself nonisolated.
+            let selector: @Sendable ([String], [NSNumber]) -> Int32 = { [self] fileNames, fileSizes in
+                self.selectFileToStream(fileNames: fileNames, fileSizes: fileSizes)
+            }
             self.streamer!.startStreaming(fromMultiTorrentFileOrMagnetLink: url, progress: { (status) in
                 loadingBlock(status)
             }, readyToPlay: { (videoFileURL, videoFilePath) in
@@ -144,14 +150,7 @@ class PreloadTorrentViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     errorBlock(error)
                 }
-            }, selectFileToStream: { fileNames, fileSizes in
-                let description = zip(fileNames, fileSizes)
-                    .map {"\($0) - \(ByteCountFormatter.string(fromByteCount:Int64(truncating: $1), countStyle: .binary))"}
-                    .joined(separator:"\n")
-                print("torrent files:", description)
-                
-                return self.selectFileToStream(fileNames: fileNames, fileSizes: fileSizes)
-            })
+            }, selectFileToStream: selector)
         } else {
             Task { @MainActor in
                 do {
