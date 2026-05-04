@@ -145,11 +145,19 @@ public struct DHT {
     static let defaultParameters: [String: String] = [:]
 }
 
-/// YTS — independent direct API for movies (yts.mx/api/v2). Used as an
-/// extra source alongside the Popcorn API mirrors. Magnets are built from
-/// the returned info-hash plus the forced-tracker list below.
+/// YTS — independent direct API for movies. Used as an extra source
+/// alongside the Popcorn API mirrors. Magnets are built from the
+/// returned info-hash plus the forced-tracker list below.
+///
+/// As of 2026-05 yts.mx serves the website (HTML), not the JSON API.
+/// `yts.lt` and `yts.am` carry the API; the client tries them in order.
 public struct YTS {
-    static let base = "https://yts.mx/api/v2"
+    static let hosts: [String] = [
+        "https://yts.lt/api/v2",
+        "https://yts.am/api/v2",
+        "https://yts.mx/api/v2",
+    ]
+    static let base = hosts[0] // legacy single-host accessor
     static let listMovies = "/list_movies.json"
     static let movieDetails = "/movie_details.json"
 
@@ -177,6 +185,18 @@ public struct YTS {
 
 public struct Popcorn {
     static let base = "https://uxert.link"
+
+    /// Hardcoded fallback mirror list. The DHT worker
+    /// (popcorn-dht.8mdm9hjd2h.workers.dev) currently returns
+    /// `{"message":"Internal Server Error"}`, so without this fallback the
+    /// app would query a single mirror. These four hosts are the same set
+    /// the DHT worker advertised when it was healthy.
+    static let fallbackMirrors: [String] = [
+        "https://uxert.link",
+        "https://fusme.link",
+        "https://jfper.link",
+        "https://yrkde.link",
+    ]
     static let movies = "/movies"
     static let movie = "/movie"
     static let movieTorrents = "/torrents" // appended after /movie/{id}

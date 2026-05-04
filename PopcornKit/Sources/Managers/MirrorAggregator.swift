@@ -15,17 +15,27 @@ import ObjectMapper
 
 extension PopcornApi {
 
-    /// Returns all known Popcorn API mirror base URLs. On first call (or
-    /// when the cache is empty), discovers them from the DHT worker.
+    /// Returns all known Popcorn API mirror base URLs. Tries the DHT worker
+    /// first, falls through to a hardcoded mirror list if discovery fails
+    /// (the worker currently returns 500s). The cached `Session.popcornBaseUrls`
+    /// short-circuits both, but the hardcoded list is unioned in so a single
+    /// stale cached URL doesn't strand the user on a dead mirror.
     static func mirrorURLs() async -> [String] {
+        var urls: [String] = []
         if let raw = Session.popcornBaseUrls, !raw.isEmpty {
-            return raw.split(separator: ",").map { cleanURL(String($0)) }
-        }
-        if let endpoints = try? await DHTApi.shared.loadEndpoints() {
+            urls = raw.split(separator: ",").map { cleanURL(String($0)) }
+        } else if let endpoints = try? await DHTApi.shared.loadEndpoints(),
+                  !endpoints.server.isEmpty,
+                  !endpoints.server.contains("Internal Server Error") {
             Session.popcornBaseUrls = endpoints.server
-            return endpoints.server.split(separator: ",").map { cleanURL(String($0)) }
+            urls = endpoints.server.split(separator: ",").map { cleanURL(String($0)) }
         }
-        return [cleanURL(Popcorn.base)]
+        // Union with the hardcoded fallbacks so we always probe every known mirror.
+        for fallback in Popcorn.fallbackMirrors {
+            let cleaned = cleanURL(fallback)
+            if !urls.contains(cleaned) { urls.append(cleaned) }
+        }
+        return urls
     }
 
     private static func cleanURL(_ raw: String) -> String {
@@ -95,9 +105,16 @@ extension PopcornApi {
         )
 
         var allLists = await popcornResults
-        if let yts = await ytsResult, !yts.isEmpty {
-            allLists.append(yts)
-        }
+        let ytsList = await ytsResult ?? []
+        if !ytsList.isEmpty { allLists.append(ytsList) }
+
+        #if DEBUG
+        let popcornCount = allLists.count - (ytsList.isEmpty ? 0 : 1)
+        let popcornTotal = allLists.prefix(popcornCount).reduce(0) { $0 + $1.count }
+        let ytsTorrentTotal = ytsList.reduce(0) { $0 + $1.torrents.count }
+        print("[PopcornTime] loadMovies search=\(searchTerm ?? "-") page=\(page): \(popcornCount) popcorn-mirrors returned \(popcornTotal) movies; YTS returned \(ytsList.count) movies (\(ytsTorrentTotal) torrents)")
+        #endif
+
         guard !allLists.isEmpty else { throw APIError(type: .missingContent) }
         return Movie.merge(allLists)
     }
@@ -136,7 +153,15 @@ extension PopcornApi {
         async let ytsTorrents: [Torrent]? = try? await YTSApi.shared.getMovieInfo(imdbId: imdbId).torrents
 
         var lists = await popcornResults
-        if let yts = await ytsTorrents { lists.append(yts) }
+        let ytsList = await ytsTorrents ?? []
+        if !ytsList.isEmpty { lists.append(ytsList) }
+
+        #if DEBUG
+        let popcornCount = lists.count - (ytsList.isEmpty ? 0 : 1)
+        let popcornTotal = lists.prefix(popcornCount).reduce(0) { $0 + $1.count }
+        print("[PopcornTime] getMovieTorrents \(imdbId): popcorn-mirrors=\(popcornCount) returned \(popcornTotal) torrents; YTS=\(ytsList.count) torrents")
+        #endif
+
         return bestTorrents(across: lists)
     }
 
@@ -156,36 +181,56 @@ extension PopcornApi {
     }
 
     /// Parse the popcorn-api `/movie/{id}/torrents` (or per-episode) response.
-    /// The on-the-wire shape varies between mirrors:
-    ///   `{ "en": { "720p": {…}, "1080p": {…} } }`     locale-keyed, or
-    ///   `{ "720p": {…}, "1080p": {…} }`               quality-keyed direct.
-    /// We accept both and prefer English when a locale dict is present.
+    /// Live mirrors return three different shapes:
+    ///
+    /// 1. `[ {url, quality, seed, peer, …}, … ]`       array of payloads (most common today),
+    /// 2. `{ "en": { "720p": {…}, … }, "ua": {…} }`    locale-keyed (returned by some mirrors),
+    /// 3. `{ "720p": {…}, "1080p": {…} }`              flat quality-keyed.
+    ///
+    /// All locales are unioned and torrents deduped by URL with the highest
+    /// seed count winning — exactly the merge logic Movie.init does on
+    /// listing responses.
     static func parseTorrentsResponse(_ data: Data) -> [Torrent] {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        guard let root = try? JSONSerialization.jsonObject(with: data) else { return [] }
 
-        var qualityDict: [String: [String: Any]] = [:]
-        // Locale-keyed: each value is itself a quality-keyed dict.
-        let nested = root.compactMapValues { $0 as? [String: [String: Any]] }
-        if !nested.isEmpty {
-            qualityDict = nested["en"] ?? nested.values.first ?? [:]
+        var collected: [Torrent] = []
+        let appendQuality: ([String: [String: Any]]) -> Void = { qualityDict in
+            for (quality, payload) in qualityDict {
+                guard quality != "0",
+                      var t = Torrent(JSON: payload)
+                else { continue }
+                t.quality = quality
+                collected.append(t)
+            }
         }
-        // Quality-keyed direct: each top-level value is a torrent payload.
-        if qualityDict.isEmpty {
-            for (key, value) in root {
-                if let torrent = value as? [String: Any] {
-                    qualityDict[key] = torrent
+
+        // Shape 1: flat array of torrent payloads.
+        if let array = root as? [[String: Any]] {
+            for payload in array {
+                guard var t = Torrent(JSON: payload) else { continue }
+                if let q = payload["quality"] as? String { t.quality = q }
+                collected.append(t)
+            }
+        } else if let dict = root as? [String: Any] {
+            // Shape 2: locale-keyed → quality dicts.
+            if let allLocales = dict as? [String: [String: [String: Any]]], !allLocales.isEmpty {
+                if let en = allLocales["en"] { appendQuality(en) }
+                for (locale, qualities) in allLocales where locale != "en" {
+                    appendQuality(qualities)
                 }
             }
-        }
-
-        var torrents: [Torrent] = []
-        for (quality, payload) in qualityDict {
-            if var torrent = Torrent(JSON: payload) {
-                torrent.quality = quality
-                torrents.append(torrent)
+            // Shape 3: flat quality-keyed.
+            if collected.isEmpty, let qualityDict = dict as? [String: [String: Any]] {
+                appendQuality(qualityDict)
             }
         }
-        return torrents
+
+        var byUrl: [String: Torrent] = [:]
+        for t in collected {
+            if let existing = byUrl[t.url], existing.seeds >= t.seeds { continue }
+            byUrl[t.url] = t
+        }
+        return Array(byUrl.values).sorted(by: <)
     }
 
     // MARK: - Shows

@@ -19,7 +19,26 @@ import ObjectMapper
 open class YTSApi: @unchecked Sendable {
     public static let shared = YTSApi()
 
-    let client = HttpClient(config: HttpApiConfig(serverURL: YTS.base))
+    /// Per-host clients; we try them in order until one returns a usable
+    /// response. yts.mx now serves HTML; yts.lt and yts.am still serve the
+    /// JSON API.
+    private let clients: [HttpClient] = YTS.hosts.map { HttpClient(config: HttpApiConfig(serverURL: $0)) }
+    let client = HttpClient(config: HttpApiConfig(serverURL: YTS.base)) // legacy single-host
+
+    private func firstWorkingResponse<T: Decodable>(
+        _ work: (HttpClient) async throws -> T
+    ) async throws -> T {
+        var lastError: Error = APIError(type: .missingContent)
+        for client in clients {
+            do {
+                return try await work(client)
+            } catch {
+                lastError = error
+                continue
+            }
+        }
+        throw lastError
+    }
 
     public func loadMovies(
         page: Int,
@@ -39,26 +58,39 @@ open class YTSApi: @unchecked Sendable {
         if let searchTerm, !searchTerm.isEmpty {
             params["query_term"] = searchTerm
         }
-        let response: YTSListMoviesResponse = try await client.request(
-            .get,
-            path: YTS.listMovies,
-            parameters: params
-        ).responseDecode()
+        let frozenParams = params
+        let response: YTSListMoviesResponse = try await firstWorkingResponse { client in
+            try await client.request(.get, path: YTS.listMovies, parameters: frozenParams).responseDecode()
+        }
         return (response.data.movies ?? []).compactMap { $0.toPopcornMovie() }
     }
 
     public func getMovieInfo(imdbId: String) async throws -> Movie {
-        let params: [String: any Sendable] = [
+        // Try movie_details.json first (the dedicated detail endpoint).
+        let detailParams: [String: any Sendable] = [
             "imdb_id": imdbId,
             "with_images": "true",
             "with_cast": "false",
         ]
-        let response: YTSMovieDetailsResponse = try await client.request(
-            .get,
-            path: YTS.movieDetails,
-            parameters: params
-        ).responseDecode()
-        guard let movie = response.data.movie?.toPopcornMovie() else {
+        if let response: YTSMovieDetailsResponse = try? await firstWorkingResponse({ client in
+            try await client.request(.get, path: YTS.movieDetails, parameters: detailParams).responseDecode()
+        }),
+           let movie = response.data.movie?.toPopcornMovie(),
+           !movie.torrents.isEmpty {
+            return movie
+        }
+        // Fallback: list_movies.json with the IMDb id as the query term. Some
+        // movies are findable via list_movies but not movie_details (and vice
+        // versa). list_movies is also the endpoint that consistently returns
+        // torrents inline.
+        let listParams: [String: any Sendable] = [
+            "query_term": imdbId,
+            "limit": 1,
+        ]
+        let listResponse: YTSListMoviesResponse = try await firstWorkingResponse { client in
+            try await client.request(.get, path: YTS.listMovies, parameters: listParams).responseDecode()
+        }
+        guard let movie = listResponse.data.movies?.first?.toPopcornMovie() else {
             throw APIError(type: .missingContent)
         }
         return movie

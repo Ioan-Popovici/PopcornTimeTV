@@ -64,6 +64,12 @@ class MovieDetailsViewModel: ObservableObject, CharacterHeadshotLoader, MediaRat
                 let unique = freshTorrents.filter { !existingUrls.contains($0.url) }
                 self.movie.torrents = (self.movie.torrents + unique).sorted(by: <)
                 self.downloadModel = DownloadButtonViewModel(media: self.movie)
+                #if DEBUG
+                print("[PopcornTime] \(self.movie.id) detail: catalog torrents=\(existingUrls.count) fresh=\(freshTorrents.count) merged=\(self.movie.torrents.count)")
+                if self.movie.torrents.isEmpty {
+                    print("[PopcornTime] \(self.movie.id) detail: NO TORRENTS — title=\(self.movie.title)")
+                }
+                #endif
                 
                 let persons = (try? await people) ?? (actors: [], crew: [])
                 self.related = (try? await related) ?? []
