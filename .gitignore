@@ -10,6 +10,11 @@ build/
 DerivedData/
 VLCKit/
 
+## Vendored upstream sources (re-fetched at build time by
+## Packages/get-popcorntorrent.sh; the script + popcorntorrent.patch
+## are checked in, the cloned tree is not).
+Packages/PopcornTorrent/
+
 ## Various settings
 *.pbxuser
 !default.pbxuser
