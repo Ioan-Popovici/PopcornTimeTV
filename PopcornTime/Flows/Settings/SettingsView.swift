@@ -16,7 +16,10 @@ struct SettingsView: View {
     @StateObject var viewModel = SettingsViewModel()
     
     @State var showQualityAlert = false
-    
+
+    @State var showAudioLanguageAlert = false
+    @State var selectedAudioLanguage = ""
+
     @State var showSubtitleLanguageAlert = false
     @State var showSubtitleFontSizeAlert = false
     @State var showSubtitleFontColorAlert = false
@@ -49,6 +52,7 @@ struct SettingsView: View {
                 Section(header: sectionHeader("Player")) {
                     removeCacheOnPlayerExitButton
                     qualityAlertButton
+                    audioLanguageButton
                     if viewModel.hasCellularNetwork {
                         streamOnCellularButton
                     }
@@ -126,6 +130,91 @@ struct SettingsView: View {
                 Button("Cancel", role: .cancel) { }
             }
         }, message: { Text("Choose a default quality. If said quality is available, it will be automatically selected.") })
+    }
+
+    /// Drives the value shown in the "Audio Language" row. Empty string
+    /// in `Session.preferredAudioLanguage` means "no preference / any".
+    private var audioLanguageDisplay: String {
+        let raw = Session.preferredAudioLanguage
+        if raw.isEmpty { return "Any".localized }
+        return Locale.current.localizedString(forLanguageCode: raw)?.capitalized ?? raw
+    }
+
+    @ViewBuilder
+    var audioLanguageButton: some View {
+        #if os(tvOS) || os(iOS)
+        button(text: "Audio Language", value: audioLanguageDisplay) {
+            showAudioLanguageAlert = true
+        }
+        .actionSheet(isPresented: $showAudioLanguageAlert) {
+            audioLanguageAlert
+        }
+        #else
+        HStack {
+            Text("Audio Language".localized)
+            Spacer()
+            Picker("", selection: $selectedAudioLanguage) {
+                ForEach(["Any"] + Locale.commonLanguages, id: \.self) { language in
+                    Text(language.localized).tag(language)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 200)
+            .onChange(of: selectedAudioLanguage) { _, newValue in
+                if newValue == "Any" {
+                    Session.preferredAudioLanguage = ""
+                } else if let code = Self.languageCode(for: newValue) {
+                    Session.preferredAudioLanguage = code
+                }
+            }
+        }
+        .font(.system(size: theme.fontSize, weight: .medium))
+        .onAppear {
+            // Translate the stored language code back into the human-readable
+            // name the picker uses (e.g. "en" → "English").
+            let code = Session.preferredAudioLanguage
+            if code.isEmpty {
+                selectedAudioLanguage = "Any"
+            } else if let name = Locale.current.localizedString(forLanguageCode: code) {
+                selectedAudioLanguage = name.capitalized
+            } else {
+                selectedAudioLanguage = "Any"
+            }
+        }
+        #endif
+    }
+
+    #if os(tvOS) || os(iOS)
+    var audioLanguageAlert: ActionSheet {
+        let values = ["Any"] + Locale.commonLanguages
+        let actions = values.map { language -> Alert.Button in
+            Alert.Button.default(Text(language.localized)) {
+                if language == "Any" {
+                    Session.preferredAudioLanguage = ""
+                } else if let code = Self.languageCode(for: language) {
+                    Session.preferredAudioLanguage = code
+                }
+            }
+        }
+        return ActionSheet(
+            title: Text("Audio Language"),
+            message: Text("Pick the audio language the torrent picker should prefer. Movies without a torrent in this language will prompt before falling back."),
+            buttons: [.cancel()] + actions
+        )
+    }
+    #endif
+
+    /// Map a localized language name (`"English"`) back to the ISO 639-1
+    /// code (`"en"`) we store in `Session.preferredAudioLanguage`. Iterates
+    /// the same curated set the picker shows.
+    static func languageCode(for displayName: String) -> String? {
+        for code in Locale.commonISOLanguageCodes {
+            if let name = Locale.current.localizedString(forLanguageCode: code),
+               name.caseInsensitiveCompare(displayName) == .orderedSame {
+                return code
+            }
+        }
+        return nil
     }
 
     @ViewBuilder
