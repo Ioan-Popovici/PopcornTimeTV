@@ -132,11 +132,26 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
         return filtered.isEmpty ? media.torrents : filtered
     }
 
+    /// One torrent per quality bucket — the highest-seeded variant of each
+    /// (after the audio-language filter has been applied). Avoids dumping
+    /// 4 separate "1080p" rows on the user when popcorn-api returned the
+    /// same quality from four different release groups; if they want
+    /// release-level granularity the language filter + the picker label
+    /// (which shows the inferred audio tracks) is enough signal.
+    private var collapsedSelectableTorrents: [Torrent] {
+        var byQuality: [String: Torrent] = [:]
+        for torrent in selectableTorrents {
+            let key = (torrent.quality ?? "0p")
+            if let existing = byQuality[key], existing.seeds >= torrent.seeds { continue }
+            byQuality[key] = torrent
+        }
+        return Array(byQuality.values).sorted(by: <)
+    }
+
     var autoSelectTorrent: Torrent? {
-        let pool = selectableTorrents
+        let pool = collapsedSelectableTorrents
         if let quality = Session.autoSelectQuality, !pool.isEmpty {
-            let sorted = pool.sorted(by: <)
-            return quality == "Highest" ? sorted.last : sorted.first
+            return quality == "Highest" ? pool.last : pool.first
         }
 
         #if os(tvOS)
@@ -150,7 +165,7 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
 
     @ViewBuilder
     var chooseTorrentsButtons: some View {
-        ForEach(selectableTorrents.sorted(by: >)) { torrent in
+        ForEach(collapsedSelectableTorrents.sorted(by: >)) { torrent in
             Button {
                 action(torrent)
             } label: {
