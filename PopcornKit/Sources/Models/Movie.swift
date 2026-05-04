@@ -149,15 +149,39 @@ public struct Movie: Media, Equatable, Identifiable {
         self.trailer = try? map.value("trailer"); trailer == "false" ? trailer = nil : ()
         self.certification = try map.value("certification")
         self.genres = (try? map.value("genres")) ?? [String]()
-        if let torrents = map["torrents.en"].currentValue as? [String: [String: Any]] {
-            for (quality, torrent) in torrents {
-                if var torrent = Mapper<Torrent>().map(JSONObject: torrent) , quality != "0" {
-                    torrent.quality = quality
-                    self.torrents.append(torrent)
-                }
+        // popcorn-api responses nest torrents by locale, e.g.
+        //   "torrents": { "en": {…}, "ua": {…}, "ru": {…} }
+        // Some titles only have non-English buckets (e.g. Apex 2026 ships
+        // only under "ua"), and on detail responses we can see either the
+        // locale-keyed shape or a flat quality-keyed shape. Union every
+        // locale so the user gets every available source, then dedup by URL
+        // keeping the highest seed count.
+        var collected: [Torrent] = []
+        let appendQualityDict: ([String: [String: Any]]) -> Void = { qualities in
+            for (quality, payload) in qualities {
+                guard quality != "0",
+                      var torrent = Mapper<Torrent>().map(JSONObject: payload)
+                else { continue }
+                torrent.quality = quality
+                collected.append(torrent)
             }
         }
-        torrents.sort(by: <)
+        if let allLocales = map["torrents"].currentValue as? [String: [String: [String: Any]]] {
+            // Prefer English first; iteration order then doesn't matter
+            // because the dedupe below keeps the highest seed count anyway.
+            if let en = allLocales["en"] { appendQualityDict(en) }
+            for (locale, qualities) in allLocales where locale != "en" {
+                appendQualityDict(qualities)
+            }
+        } else if let qualityKeyed = map["torrents"].currentValue as? [String: [String: Any]] {
+            appendQualityDict(qualityKeyed)
+        }
+        var byUrl: [String: Torrent] = [:]
+        for t in collected {
+            if let existing = byUrl[t.url], existing.seeds >= t.seeds { continue }
+            byUrl[t.url] = t
+        }
+        torrents = Array(byUrl.values).sorted(by: <)
     }
     
     public init(title: String = "Unknown".localized, id: String = "tt0000000", tmdbId: Int? = nil, slug: String = "unknown", summary: String = "No summary available.".localized, torrents: [Torrent] = [], subtitles: Dictionary<String, [Subtitle]> = [:], largeBackgroundImage: String? = nil, largeCoverImage: String? = nil) {
