@@ -182,6 +182,76 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
         return upper.range(of: pattern, options: .regularExpression) != nil
     }
 
+    /// Coarse encoding source tier inferred from the release name. Used to
+    /// prefer BluRay over WEB-DL over WEBRip etc. when collapsing duplicate
+    /// quality entries, and to demote theatrical screeners (CAM / TS / TC
+    /// / SCR) which look like the right resolution on paper but are
+    /// recorded with a camcorder in a cinema.
+    public enum ReleaseSource: Int, Sendable, Comparable {
+        case screener = 0   // CAM, TS, TC, SCR, HDCAM — avoid
+        case dvdrip   = 2
+        case hdtv     = 3
+        case webrip   = 4
+        case webdl    = 5
+        case bluray   = 6
+        case unknown  = 1   // unlabelled releases sit just above screeners
+        public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    /// Best-effort source classification from the title. Returns `.unknown`
+    /// when nothing recognisable is in there.
+    public var releaseSource: ReleaseSource {
+        let upper = (title ?? "").uppercased()
+        // Order matters: check screener markers first so a "BluRay-CAM"
+        // hybrid doesn't get classified as BluRay.
+        if upper.contains("HDCAM") || upper.contains("TELESYNC") ||
+           upper.contains("TELECINE") || upper.contains("SCREENER") ||
+           Self.markerRegex(upper, marker: "CAM") ||
+           Self.markerRegex(upper, marker: "TS") ||
+           Self.markerRegex(upper, marker: "TC") ||
+           Self.markerRegex(upper, marker: "SCR") {
+            return .screener
+        }
+        if upper.contains("BLURAY") || upper.contains("BRRIP") || upper.contains("BDRIP") {
+            return .bluray
+        }
+        if upper.contains("WEB-DL") || upper.contains("WEBDL") {
+            return .webdl
+        }
+        if upper.contains("WEBRIP") || upper.contains("WEB-RIP") || upper.contains("WEB-DLRIP") {
+            return .webrip
+        }
+        if upper.contains("HDTV") || upper.contains("PDTV") {
+            return .hdtv
+        }
+        if upper.contains("DVDRIP") || upper.contains("DVD-RIP") {
+            return .dvdrip
+        }
+        return .unknown
+    }
+
+    /// Composite "would I want to watch this?" score used to pick the
+    /// best variant within a quality bucket. Source tier dominates,
+    /// resolution and seed count tie-break. Screeners always lose to a
+    /// non-screener regardless of seed count.
+    public var qualityScore: Int {
+        let sourceTier = releaseSource.rawValue * 1000
+        let resolution: Int = {
+            switch (quality ?? "").lowercased() {
+            case "2160p", "4k": return 50
+            case "1080p":       return 40
+            case "720p":        return 30
+            case "480p":        return 20
+            case "3d":          return 10
+            default:            return 0
+            }
+        }()
+        // log-ish bonus so 5000 vs 50 seeds matters but 5000 vs 4900 doesn't
+        // dominate the source tier.
+        let seedBonus = min(99, max(0, Int(log2(Double(seeds + 1)) * 5)))
+        return sourceTier + resolution + seedBonus
+    }
+
     /// Decorate a magnet URI with the same forced-tracker list
     /// Popcorn-Desktop appends, deduped and `&amp;`-decoded. Many
     /// popcorn-api magnets in the wild ship with only 1–3 trackers
