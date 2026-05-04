@@ -63,4 +63,90 @@ class PlayerAudioModel {
         let equalizer = VLCAudioEqualizer(preset: VLCAudioEqualizer.presets[Int(profile.rawValue)])
         mediaplayer.equalizer = equalizer
     }
+
+    /// Find the audio track inside the now-playing media that best matches
+    /// the user's `Session.preferredAudioLanguage` and switch to it. Called
+    /// by PlayerViewModel once VLC reports the first time-changed event
+    /// (which is when track metadata becomes available).
+    ///
+    /// VLC track names come from the container metadata: usually the ISO
+    /// 639 code or the language's English name (`"English"`, `"Russian"`,
+    /// `"eng"`, `"rus"`, `"und"`, …). We compare against the ISO code and
+    /// the language name in both English *and* the system locale, so a
+    /// macOS in Russian still matches an "English" track tag and vice
+    /// versa.
+    func selectPreferredAudioTrack(language: String) {
+        let normalized = language.lowercased()
+        guard !normalized.isEmpty else { return }
+
+        // Build a list of candidate strings the matching track name might
+        // contain (case-insensitive substring match).
+        var candidates: Set<String> = [normalized]
+        if let englishName = Locale(identifier: "en").localizedString(forLanguageCode: normalized) {
+            candidates.insert(englishName.lowercased())
+        }
+        if let localized = Locale.current.localizedString(forLanguageCode: normalized) {
+            candidates.insert(localized.lowercased())
+        }
+        // ISO 639-2/B three-letter forms VLC commonly emits.
+        candidates.formUnion(Self.iso639Codes(for: normalized))
+
+        let names = audioTracksNames()
+        for (i, name) in names.enumerated() {
+            let lower = name.lowercased()
+            if candidates.contains(where: { lower.contains($0) }) {
+                mediaplayer.currentAudioTrackIndex = Int32(i)
+                #if DEBUG
+                print("[Audio] selected track #\(i) '\(name)' for preferred='\(language)'")
+                #endif
+                return
+            }
+        }
+        #if DEBUG
+        print("[Audio] no track matched preferred='\(language)' in \(names)")
+        #endif
+    }
+
+    /// Map of ISO 639-1 → 639-2/B (the form VLC tends to emit). Just the
+    /// commonly-released languages — not exhaustive, falls through cleanly.
+    private static func iso639Codes(for code: String) -> Set<String> {
+        switch code {
+        case "en": return ["eng"]
+        case "ru": return ["rus"]
+        case "uk": return ["ukr"]
+        case "fr": return ["fra", "fre"]
+        case "de": return ["ger", "deu"]
+        case "es": return ["spa"]
+        case "it": return ["ita"]
+        case "pt": return ["por"]
+        case "ja": return ["jpn"]
+        case "ko": return ["kor"]
+        case "zh": return ["zho", "chi"]
+        case "ar": return ["ara"]
+        case "tr": return ["tur"]
+        case "pl": return ["pol"]
+        case "nl": return ["nld", "dut"]
+        case "fi": return ["fin"]
+        case "sv": return ["swe"]
+        case "no": return ["nor"]
+        case "da": return ["dan"]
+        case "cs": return ["ces", "cze"]
+        case "el": return ["ell", "gre"]
+        case "he": return ["heb"]
+        case "hi": return ["hin"]
+        case "id": return ["ind"]
+        case "ms": return ["msa", "may"]
+        case "ro": return ["ron", "rum"]
+        case "sk": return ["slk", "slo"]
+        case "sl": return ["slv"]
+        case "th": return ["tha"]
+        case "vi": return ["vie"]
+        case "hu": return ["hun"]
+        case "ca": return ["cat"]
+        case "hr": return ["hrv"]
+        case "sr": return ["srp"]
+        case "bs": return ["bos"]
+        default: return []
+        }
+    }
 }
