@@ -1,5 +1,5 @@
 {
-  "originHash" : "popcorntime-spm-v3",
+  "originHash" : "b0270e85ef683b61f8f5eb3a52aa654b553b95e0c2210be7d0e55a17b69a794c",
   "pins" : [
     {
       "identity" : "gcdwebserver",
@@ -26,15 +26,6 @@
       "state" : {
         "revision" : "6021c6035e83a306047348666f6400dc61445d3b",
         "version" : "4.4.3"
-      }
-    },
-    {
-      "identity" : "popcorntorrent",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/alextud/PopcornTorrent",
-      "state" : {
-        "branch" : "v2_3",
-        "revision" : "d331ae80f688454cfadc68e258b437ae80697787"
       }
     },
     {

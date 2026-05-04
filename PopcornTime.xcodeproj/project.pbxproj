@@ -1117,7 +1117,7 @@
 			);
 			mainGroup = 287B852B1C9873A200EEF5C8;
 			packageReferences = (
-				232BB5222694562C005448AE /* XCRemoteSwiftPackageReference "PopcornTorrent" */,
+				232BB5222694562C005448AE /* XCLocalSwiftPackageReference "Packages/PopcornTorrent" */,
 				232BB525269456BF005448AE /* XCRemoteSwiftPackageReference "Kingfisher" */,
 				232BB52A26946B47005448AE /* XCRemoteSwiftPackageReference "ObjectMapper" */,
 				23166C052694F13800D87AD0 /* XCRemoteSwiftPackageReference "SwiftyJSON" */,
@@ -2053,13 +2053,9 @@
 				minimumVersion = 5.0.1;
 			};
 		};
-		232BB5222694562C005448AE /* XCRemoteSwiftPackageReference "PopcornTorrent" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/alextud/PopcornTorrent";
-			requirement = {
-				branch = v2_3;
-				kind = branch;
-			};
+		232BB5222694562C005448AE /* XCLocalSwiftPackageReference "Packages/PopcornTorrent" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/PopcornTorrent;
 		};
 		232BB525269456BF005448AE /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -2082,7 +2078,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		232BB5232694562C005448AE /* PopcornTorrent */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 232BB5222694562C005448AE /* XCRemoteSwiftPackageReference "PopcornTorrent" */;
+			package = 232BB5222694562C005448AE /* XCLocalSwiftPackageReference "Packages/PopcornTorrent" */;
 			productName = PopcornTorrent;
 		};
 		232BB526269456BF005448AE /* Kingfisher */ = {
@@ -2111,7 +2107,7 @@
 		};
 		237ECA2C26B848B900EE8B46 /* PopcornTorrent */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 232BB5222694562C005448AE /* XCRemoteSwiftPackageReference "PopcornTorrent" */;
+			package = 232BB5222694562C005448AE /* XCLocalSwiftPackageReference "Packages/PopcornTorrent" */;
 			productName = PopcornTorrent;
 		};
 		23A2BDB126BEDA5F004B864E /* PopcornKit */ = {
@@ -2120,7 +2116,7 @@
 		};
 		23A2BDB326BEDA5F004B864E /* PopcornTorrent */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 232BB5222694562C005448AE /* XCRemoteSwiftPackageReference "PopcornTorrent" */;
+			package = 232BB5222694562C005448AE /* XCLocalSwiftPackageReference "Packages/PopcornTorrent" */;
 			productName = PopcornTorrent;
 		};
 		23A2BDB526BEDB2C004B864E /* Kingfisher */ = {

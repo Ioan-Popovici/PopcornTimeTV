@@ -27,7 +27,7 @@ endif
 
 .PHONY: help build build-debug build-ios build-tvos build-release \
         build-original run compare clean clean-all resolve vlc-mac vlc-ios \
-        vlc-tv lint format ci-local
+        vlc-tv vendor-popcorntorrent lint format ci-local
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -36,7 +36,7 @@ help: ## Show this help.
 
 build: build-debug ## Alias for `build-debug`.
 
-build-debug: vlc-mac resolve ## Debug build, macOS, into DerivedData.
+build-debug: vendor-popcorntorrent vlc-mac resolve ## Debug build, macOS, into DerivedData.
 	@xcodebuild $(XCODEBUILD_FLAGS) \
 	  -scheme "PopcornTime (macOS)" \
 	  -configuration Debug \
@@ -44,7 +44,7 @@ build-debug: vlc-mac resolve ## Debug build, macOS, into DerivedData.
 	  -derivedDataPath $(DERIVED_DIR) \
 	  build $(PIPE)
 
-build-ios: vlc-ios resolve ## Debug build, iOS Simulator.
+build-ios: vendor-popcorntorrent vlc-ios resolve ## Debug build, iOS Simulator.
 	@xcodebuild $(XCODEBUILD_FLAGS) \
 	  -scheme "PopcornTime (iOS)" \
 	  -configuration Debug \
@@ -53,7 +53,7 @@ build-ios: vlc-ios resolve ## Debug build, iOS Simulator.
 	  -derivedDataPath $(DERIVED_DIR) \
 	  build $(PIPE)
 
-build-tvos: vlc-tv resolve ## Debug build, tvOS Simulator (requires platform installed).
+build-tvos: vendor-popcorntorrent vlc-tv resolve ## Debug build, tvOS Simulator (requires platform installed).
 	@xcodebuild $(XCODEBUILD_FLAGS) \
 	  -scheme "PopcornTime (tvOS)" \
 	  -configuration Debug \
@@ -62,7 +62,7 @@ build-tvos: vlc-tv resolve ## Debug build, tvOS Simulator (requires platform ins
 	  -derivedDataPath $(DERIVED_DIR) \
 	  build $(PIPE)
 
-build-release: vlc-mac resolve ## Release macOS .app into ./build/.
+build-release: vendor-popcorntorrent vlc-mac resolve ## Release macOS .app into ./build/.
 	@-pkill -f "$(BUILD_DIR)/PopcornTime.app/Contents/MacOS/PopcornTime" 2>/dev/null || true
 	@rm -rf $(BUILD_DIR)/PopcornTime.app $(BUILD_DIR)/PopcornTime.app.dSYM
 	@xcodebuild $(XCODEBUILD_FLAGS) \
@@ -120,13 +120,17 @@ vlc-ios: ## Fetch iOS MobileVLCKit binary.
 vlc-tv: ## Fetch tvOS TVVLCKit binary.
 	@bash VLCKit/get-vlc-frameworks.sh tv
 
+vendor-popcorntorrent: ## Clone PopcornTorrent into Packages/ and apply the streaming patch.
+	@bash Packages/get-popcorntorrent.sh
+
 clean: ## Remove ./build and DerivedData for this project.
 	@rm -rf $(BUILD_DIR)/PopcornTime.app $(BUILD_DIR)/PopcornTime.app.dSYM
 	@rm -rf $(DERIVED_DIR) /tmp/PopcornTime-original-derived
 
-clean-all: clean ## Also remove the ./build/original copy and the VLCKit drop.
+clean-all: clean ## Also remove the ./build/original copy, VLCKit drop, and vendored PopcornTorrent.
 	@rm -rf $(ORIGINAL_DIR) VLCKit/MobileVLCKit-binary VLCKit/TVVLCKit-binary "VLCKit/VLCKit - binary package" \
-	        VLCKit/Manifest.lock VLCKit/ios-version.lock VLCKit/tv-version.lock VLCKit/mac-version.lock
+	        VLCKit/Manifest.lock VLCKit/ios-version.lock VLCKit/tv-version.lock VLCKit/mac-version.lock \
+	        Packages/PopcornTorrent
 
 format: ## Run swiftformat (no-op if not installed).
 	@if command -v swiftformat >/dev/null; then swiftformat PopcornTime PopcornKit/Sources --config .swiftformat; \

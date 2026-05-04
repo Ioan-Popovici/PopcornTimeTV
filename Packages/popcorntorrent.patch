@@ -1,0 +1,35 @@
+--- a/PopcornTorrent/Sources/Client/PTTorrentStreamer.mm
++++ b/PopcornTorrent/Sources/Client/PTTorrentStreamer.mm
+@@ -132,7 +132,15 @@
+                 error = [[NSError alloc] initWithDomain:@"com.popcorntimetv.popcorntorrent.error" code:-1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithCString:ec.message().c_str() encoding:NSUTF8StringEncoding]}];
+             }
+             int index = [self selectedFileIndexInTorrentWithTorrentInfo:tp.ti];
+-            MIN_PIECES = ((tp.ti->files().file_size(libtorrent::file_index_t(index)) * 0.03)/tp.ti->piece_length());
++            // PATCH(MEM.Zone): start playback after a much smaller pre-buffer
++            // (was 3% of file or up to 20 pieces ~= 80 MB). Popcorn-Desktop's
++            // WebTorrent streamer kicks off the moment metadata arrives;
++            // libtorrent's HTTP byte-range server can do the same once the
++            // first few pieces are present. 4 pieces ~= 8-16 MB and brings
++            // first-frame latency in line with the desktop client.
++            MIN_PIECES = ((tp.ti->files().file_size(libtorrent::file_index_t(index)) * 0.005) / tp.ti->piece_length());
++            MIN_PIECES = std::max(MIN_PIECES, 4);
++            MIN_PIECES = std::min(MIN_PIECES, 6);
+         } else {
+             error = [[NSError alloc] initWithDomain:@"com.popcorntimetv.popcorntorrent.error" code:-2 userInfo:@{NSLocalizedDescriptionKey: [NSString localizedStringWithFormat:@"File doesn't exist at path: %@".localizedString, filePath]}];
+         }
+@@ -500,9 +508,12 @@
+         return;
+     }
+     
+-    // download first pieces
+-    MIN_PIECES = (ti->files().file_size(file_index) * 0.03) / ti->piece_length();
+-    MIN_PIECES = std::min(MIN_PIECES, 20);
++    // PATCH(MEM.Zone): start playback after a much smaller pre-buffer
++    // (was 3% of file or up to 20 pieces ~= 80 MB). See the matching
++    // patch above for the rationale.
++    MIN_PIECES = (ti->files().file_size(file_index) * 0.005) / ti->piece_length();
++    MIN_PIECES = std::max(MIN_PIECES, 4);
++    MIN_PIECES = std::min(MIN_PIECES, 6);
+     NSLog(@"min pieces: %d", MIN_PIECES);
+     piece_index_t first_piece = ti->map_file(file_index, 0, 0).piece;
+     NSLog(@"first piece: %d", (int)first_piece);
