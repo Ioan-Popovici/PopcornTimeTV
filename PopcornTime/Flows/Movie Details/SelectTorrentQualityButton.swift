@@ -132,17 +132,17 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
         return filtered.isEmpty ? media.torrents : filtered
     }
 
-    /// One torrent per quality bucket — the highest-seeded variant of each
-    /// (after the audio-language filter has been applied). Avoids dumping
-    /// 4 separate "1080p" rows on the user when popcorn-api returned the
-    /// same quality from four different release groups; if they want
-    /// release-level granularity the language filter + the picker label
-    /// (which shows the inferred audio tracks) is enough signal.
+    /// One torrent per quality bucket — the variant with the best composite
+    /// `qualityScore` (encoding source tier > resolution > seed count, with
+    /// theatrical screeners demoted below every other source). Picks
+    /// non-screeners over screeners even when the screener has more seeds.
+    /// If a bucket has nothing but screeners, we still pick the best of
+    /// those rather than silently hiding the quality.
     private var collapsedSelectableTorrents: [Torrent] {
         var byQuality: [String: Torrent] = [:]
         for torrent in selectableTorrents {
-            let key = (torrent.quality ?? "0p")
-            if let existing = byQuality[key], existing.seeds >= torrent.seeds { continue }
+            let key = torrent.quality ?? "0p"
+            if let existing = byQuality[key], existing.qualityScore >= torrent.qualityScore { continue }
             byQuality[key] = torrent
         }
         return Array(byQuality.values).sorted(by: <)
@@ -163,24 +163,65 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
         return nil
     }
 
+    /// Set when the user has expanded the picker via the "Show all sources"
+    /// row to access release-level granularity (e.g. picking the Sub variant
+    /// over the L variant of the same 1080p release).
+    @State var showAllSources = false
+
     @ViewBuilder
     var chooseTorrentsButtons: some View {
-        ForEach(collapsedSelectableTorrents.sorted(by: >)) { torrent in
-            Button {
-                action(torrent)
-            } label: {
-                #if os(iOS) || os(tvOS)
-                Text(verbatim: "\(torrent.quality ?? "")\(localeSuffix(torrent)) (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
-                #elseif os(macOS)
-                torrent.health.image
-                Text(torrent.quality)
-                    .fontWeight(.bold)
-                Text(verbatim: "\(localeSuffix(torrent)) (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
-                    .foregroundColor(.appLightGray)
-                    .font(.system(size: 12, weight: .light))
-                Spacer()
-                #endif
+        let collapsedRows = collapsedSelectableTorrents.sorted(by: >)
+        let collapsedURLs = Set(collapsedRows.map(\.url))
+        let extraRows = selectableTorrents.filter { !collapsedURLs.contains($0.url) }.sorted(by: >)
+
+        ForEach(collapsedRows) { torrent in
+            torrentRow(torrent)
+        }
+
+        if !extraRows.isEmpty {
+            if showAllSources {
+                ForEach(extraRows) { torrent in
+                    torrentRow(torrent)
+                }
+            } else {
+                Button("Show all sources… (\(extraRows.count) more)") {
+                    showAllSources = true
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func torrentRow(_ torrent: Torrent) -> some View {
+        Button {
+            action(torrent)
+        } label: {
+            #if os(iOS) || os(tvOS)
+            Text(verbatim: "\(torrent.quality ?? "")\(sourceSuffix(torrent))\(localeSuffix(torrent)) (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
+            #elseif os(macOS)
+            torrent.health.image
+            Text(torrent.quality)
+                .fontWeight(.bold)
+            Text(verbatim: "\(sourceSuffix(torrent))\(localeSuffix(torrent)) (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
+                .foregroundColor(.appLightGray)
+                .font(.system(size: 12, weight: .light))
+            Spacer()
+            #endif
+        }
+    }
+
+    /// `" · BluRay"`, `" · WEB-DL"`, `" · CAM"`, etc. — surfaces the
+    /// release source so users browsing the picker can spot a screener
+    /// before they pick it.
+    private func sourceSuffix(_ torrent: Torrent) -> String {
+        switch torrent.releaseSource {
+        case .bluray:   return " · BluRay"
+        case .webdl:    return " · WEB-DL"
+        case .webrip:   return " · WEBRip"
+        case .hdtv:     return " · HDTV"
+        case .dvdrip:   return " · DVDRip"
+        case .screener: return " · CAM"
+        case .unknown:  return ""
         }
     }
 
