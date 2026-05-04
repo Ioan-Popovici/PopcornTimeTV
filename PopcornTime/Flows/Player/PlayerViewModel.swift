@@ -386,6 +386,13 @@ extension PlayerViewModel: @preconcurrency VLCMediaPlayerDelegate {
 //            beginReceivingScreenNotifications()
             nowPlaying.configureNowPlayingInfo()
 
+            // Switch to the audio track matching the user's preferred
+            // language. Track metadata isn't available until VLC has
+            // parsed enough of the stream to fire this delegate; doing it
+            // earlier (e.g. at init) silently fails because audioTrackNames
+            // is still empty.
+            audioController.selectPreferredAudioTrack(language: Session.preferredAudioLanguage)
+
             resetIdleTimer()
         } else {
             nowPlaying.configureNowPlayingPositions()
