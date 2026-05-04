@@ -61,6 +61,14 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
     /// (e.g. YTS — whose catalogue is English-original by default).
     public var locale: String?
 
+    /// Release-name string the source provided, e.g.
+    /// `"Вершина / Apex (2026) WEB-DLRip 1080p от New-Team | L | LE-Production"`.
+    /// We parse this for audio-track hints (`Sub`, `L`, `MVO`, `Original`,
+    /// `Eng`, `Дубляж`, …) — the popcorn-api `contentLocale` is just the
+    /// audience tag and a `ru`-bucket release frequently still ships with
+    /// the English original audio underneath the Russian voiceover.
+    public var title: String?
+
     public init?(map: Map) {
         do { self = try Torrent(map) }
         catch { return nil }
@@ -73,6 +81,7 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
         self.peers = (try? (try? map.value("peers")) ?? map.value(("peer"))) ?? 0
         self.size = try? map.value("filesize")
         self.quality = try? map.value("quality") // Will only not be `nil` if object is mapped from JSON array, otherwise this is set in `Show or Movie` struct.
+        self.title = try? map.value("title")
         
         // First calculate the seed/peer ratio
         let ratio = peers > 0 ? (seeds / peers) : seeds
@@ -107,7 +116,7 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
         }
     }
     
-    public init(health: Health = .unknown, url: String = "", quality: String = "0p", seeds: Int = 0, peers: Int = 0, size: String? = nil, locale: String? = nil) {
+    public init(health: Health = .unknown, url: String = "", quality: String = "0p", seeds: Int = 0, peers: Int = 0, size: String? = nil, locale: String? = nil, title: String? = nil) {
         self.health = health
         self.url = Torrent.augmentMagnetWithForcedTrackers(url)
         self.quality = quality
@@ -115,6 +124,62 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
         self.peers = peers
         self.size = size
         self.locale = locale
+        self.title = title
+    }
+
+    /// Languages the audio track of this release likely contains. Derived
+    /// from `locale` + heuristic title parsing of Russian-scene release-tag
+    /// markers, since a `contentLocale=ru` bucket frequently includes
+    /// torrents whose audio is `ru` voiceover + `en` original.
+    ///
+    /// Markers we recognise:
+    ///   - `Sub` / `Subbed`     → original audio + foreign subs (treated as English)
+    ///   - `L` / `MVO` / `DVO`  → multi-voice voiceover, original audio underneath (Russian + English)
+    ///   - `D` / `Дубляж`       → fully dubbed (single language; no original)
+    ///   - `Eng` / `Original`   → explicit English audio
+    /// A title with no Cyrillic and no markers is assumed to be an English
+    /// original release.
+    public var audioLanguages: Set<String> {
+        var langs: Set<String> = []
+        if let loc = locale, !loc.isEmpty { langs.insert(loc.lowercased()) }
+
+        let raw = title ?? ""
+        let upper = raw.uppercased()
+        let hasCyrillic = raw.range(of: "[\u{0400}-\u{04FF}]", options: .regularExpression) != nil
+        if hasCyrillic { langs.insert("ru") }
+
+        // Explicit English/original markers.
+        if upper.contains("ORIGINAL") || upper.contains("ENG") || upper.contains("|EN|") {
+            langs.insert("en")
+        }
+        // Subbed = original audio with subtitles, almost always English original.
+        if Self.markerRegex(upper, marker: "SUB") || Self.markerRegex(upper, marker: "SUBS") || Self.markerRegex(upper, marker: "SUBBED") {
+            langs.insert("en")
+        }
+        // Voiceover formats include the original audio track underneath.
+        // L1 / L2 / L3 are voiceover with 1/2/3 voice actors; the original
+        // audio is always retained alongside on those releases.
+        for marker in ["L", "L1", "L2", "L3", "MVO", "DVO", "AVO", "VO", "DUO"] {
+            if Self.markerRegex(upper, marker: marker) {
+                langs.insert("en")
+            }
+        }
+        // "D" / Дубляж is dub-only — explicitly does NOT add English. Don't
+        // remove anything that's already in `langs` though; locale stays.
+
+        // Title is purely Latin and has no Russian-scene markers → English.
+        if !hasCyrillic && langs.isEmpty {
+            langs.insert("en")
+        }
+        return langs
+    }
+
+    /// Match a single-letter or short marker as a whole word in the upper-
+    /// cased title (avoids false positives like "L" matching "BLURAY"). The
+    /// marker must be surrounded by `|`, whitespace, or string boundary.
+    private static func markerRegex(_ upper: String, marker: String) -> Bool {
+        let pattern = "(^|[^A-Z0-9])\(marker)([^A-Z0-9]|$)"
+        return upper.range(of: pattern, options: .regularExpression) != nil
     }
 
     /// Decorate a magnet URI with the same forced-tracker list
