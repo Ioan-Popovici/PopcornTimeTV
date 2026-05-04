@@ -119,8 +119,18 @@ class NowPlayingController {
                 guard let image = result.value?.image else {
                     return
                 }
-
-                self.nowPlayingInfo?[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                // MediaPlayer invokes the artwork request handler on a
+                // background dispatch queue. The closure must therefore be
+                // @Sendable / non-isolated, otherwise Swift 6 traps via
+                // _swift_task_checkIsolatedSwift when the system asks for
+                // a JPEG-resized variant. NSImage / UIImage are immutable
+                // for our purposes here.
+                #if os(macOS)
+                let provider: @Sendable (CGSize) -> NSImage = { _ in image }
+                #else
+                let provider: @Sendable (CGSize) -> UIImage = { _ in image }
+                #endif
+                self.nowPlayingInfo?[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size, requestHandler: provider)
             }
         }
     }
