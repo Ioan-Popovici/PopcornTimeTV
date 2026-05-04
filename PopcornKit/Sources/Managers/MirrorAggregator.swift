@@ -137,19 +137,24 @@ extension PopcornApi {
         return merged
     }
 
-    /// Hit `/movie/{imdb_id}/torrents` on every popcorn-api mirror in parallel
-    /// and merge with YTS's torrents. This is the dedicated torrent endpoint
-    /// Popcorn-Desktop 0.5.1 uses (the bare `/movie/{id}` endpoint returns
-    /// metadata-only on most mirrors, with no torrents at all).
+    /// popcorn-api's `/movie/{id}/torrents` endpoint filters by `contentLocale`
+    /// — `contentLocale=en` returns ONLY English-source torrents, often zero
+    /// (Apex 2026 returns 0 for `en` but 17 for `ru` on uxert.link, matching
+    /// what Popcorn-Desktop shows when the user picks the Russian language
+    /// tab). To surface every torrent on the detail page we fan the request
+    /// out across every plausible content locale, on every mirror, in parallel
+    /// and merge.
+    static let knownContentLocales: [String] = [
+        "en", "ru", "ua", "it", "de", "es", "fr", "pt",
+        "pl", "nl", "ja", "ar", "tr", "ko", "zh", "fi", "sv",
+    ]
+
+    /// Hit `/movie/{imdb_id}/torrents` on every popcorn-api mirror × every
+    /// known content locale in parallel and union with YTS's torrents.
     open func getMovieTorrentsAggregated(imdbId: String) async throws -> [Torrent] {
         let path = "\(Popcorn.movie)/\(imdbId)\(Popcorn.movieTorrents)"
-        let params: [String: any Sendable] = ["locale": "en", "contentLocale": "en"]
-        let frozenParams = params
 
-        async let popcornResults: [[Torrent]] = PopcornApi.aggregate { client in
-            let data = try await client.request(.get, path: path, parameters: frozenParams).responseData()
-            return PopcornApi.parseTorrentsResponse(data)
-        }
+        async let popcornResults: [[Torrent]] = PopcornApi.fanOutPerLocale(path: path)
         async let ytsTorrents: [Torrent]? = try? await YTSApi.shared.getMovieInfo(imdbId: imdbId).torrents
 
         var lists = await popcornResults
@@ -159,25 +164,53 @@ extension PopcornApi {
         #if DEBUG
         let popcornCount = lists.count - (ytsList.isEmpty ? 0 : 1)
         let popcornTotal = lists.prefix(popcornCount).reduce(0) { $0 + $1.count }
-        print("[PopcornTime] getMovieTorrents \(imdbId): popcorn-mirrors=\(popcornCount) returned \(popcornTotal) torrents; YTS=\(ytsList.count) torrents")
+        print("[PopcornTime] getMovieTorrents \(imdbId): popcorn (mirror×locale fan-out) returned \(popcornTotal) torrent buckets across \(popcornCount) hits; YTS=\(ytsList.count) torrents")
         #endif
 
         return bestTorrents(across: lists)
     }
 
-    /// Hit `/show/{imdb_id}/{season}/{episode}/torrents` on every mirror in
-    /// parallel and merge — the same per-episode endpoint Popcorn-Desktop
-    /// uses when the user opens a specific episode.
+    /// Same per-locale fan-out for episode torrents:
+    /// `/show/{imdb_id}/{season}/{episode}/torrents`.
     open func getEpisodeTorrentsAggregated(showImdbId: String, season: Int, episode: Int) async throws -> [Torrent] {
         let path = "\(Popcorn.show)/\(showImdbId)/\(season)/\(episode)\(Popcorn.showTorrents)"
-        let params: [String: any Sendable] = ["locale": "en", "contentLocale": "en"]
-        let frozenParams = params
-
-        let popcornResults: [[Torrent]] = await PopcornApi.aggregate { client in
-            let data = try await client.request(.get, path: path, parameters: frozenParams).responseData()
-            return PopcornApi.parseTorrentsResponse(data)
-        }
+        let popcornResults: [[Torrent]] = await PopcornApi.fanOutPerLocale(path: path)
         return bestTorrents(across: popcornResults)
+    }
+
+    /// Run the dedicated `/torrents` endpoint at `path` against every mirror
+    /// × every known content-locale in parallel; return one `[Torrent]` per
+    /// successful response.
+    private static func fanOutPerLocale(path: String) async -> [[Torrent]] {
+        let urls = await mirrorURLs()
+        return await withTaskGroup(of: [Torrent]?.self) { group in
+            for baseURL in urls {
+                for locale in knownContentLocales {
+                    let frozenURL = baseURL
+                    let frozenLocale = locale
+                    let frozenPath = path
+                    group.addTask {
+                        let params: [String: any Sendable] = [
+                            "locale": "en",
+                            "contentLocale": frozenLocale,
+                        ]
+                        do {
+                            let data = try await mirrorClient(for: frozenURL)
+                                .request(.get, path: frozenPath, parameters: params).responseData()
+                            let torrents = parseTorrentsResponse(data)
+                            return torrents.isEmpty ? nil : torrents
+                        } catch {
+                            return nil
+                        }
+                    }
+                }
+            }
+            var lists: [[Torrent]] = []
+            for await result in group {
+                if let result { lists.append(result) }
+            }
+            return lists
+        }
     }
 
     /// Parse the popcorn-api `/movie/{id}/torrents` (or per-episode) response.
