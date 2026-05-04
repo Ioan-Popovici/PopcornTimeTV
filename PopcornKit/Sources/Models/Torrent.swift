@@ -53,7 +53,14 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
     
     /// Size of the torrent. Will be `nil` if object is episode.
     public let size: String?
-    
+
+    /// Content locale this torrent was tagged under by the popcorn-api
+    /// response (e.g. "en", "ru", "ua", "fr"). Used to honour the user's
+    /// preferred audio-language when the picker auto-selects a torrent.
+    /// `nil` for torrents that came from a source without locale tagging
+    /// (e.g. YTS — whose catalogue is English-original by default).
+    public var locale: String?
+
     public init?(map: Map) {
         do { self = try Torrent(map) }
         catch { return nil }
@@ -100,13 +107,14 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
         }
     }
     
-    public init(health: Health = .unknown, url: String = "", quality: String = "0p", seeds: Int = 0, peers: Int = 0, size: String? = nil) {
+    public init(health: Health = .unknown, url: String = "", quality: String = "0p", seeds: Int = 0, peers: Int = 0, size: String? = nil, locale: String? = nil) {
         self.health = health
         self.url = Torrent.augmentMagnetWithForcedTrackers(url)
         self.quality = quality
         self.seeds = seeds
         self.peers = peers
         self.size = size
+        self.locale = locale
     }
 
     /// Decorate a magnet URI with the same forced-tracker list

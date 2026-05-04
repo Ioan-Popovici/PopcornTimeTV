@@ -197,7 +197,7 @@ extension PopcornApi {
                         do {
                             let data = try await mirrorClient(for: frozenURL)
                                 .request(.get, path: frozenPath, parameters: params).responseData()
-                            let torrents = parseTorrentsResponse(data)
+                            let torrents = parseTorrentsResponse(data, taggedWith: frozenLocale)
                             return torrents.isEmpty ? nil : torrents
                         } catch {
                             return nil
@@ -211,6 +211,15 @@ extension PopcornApi {
             }
             return lists
         }
+    }
+
+    /// Convenience overload: parse and tag every returned torrent with the
+    /// content-locale we queried with so the picker can honour the user's
+    /// preferred audio language. Used by `fanOutPerLocale`.
+    static func parseTorrentsResponse(_ data: Data, taggedWith locale: String) -> [Torrent] {
+        var torrents = parseTorrentsResponse(data)
+        for i in torrents.indices { torrents[i].locale = locale }
+        return torrents
     }
 
     /// Parse the popcorn-api `/movie/{id}/torrents` (or per-episode) response.

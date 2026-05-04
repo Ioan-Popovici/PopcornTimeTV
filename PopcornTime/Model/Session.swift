@@ -28,6 +28,22 @@ enum Session {
         }
     }
 
+    /// Preferred audio language for torrent selection (ISO 639-1, e.g. "en",
+    /// "ru", "ua"). Defaults to the system language so users on a Russian
+    /// macOS get RU torrents auto-selected. Set to "" to disable preference
+    /// and treat every locale equally.
+    static var preferredAudioLanguage: String {
+        get {
+            if let stored = UserDefaults.standard.optionalString(forKey: "preferredAudioLanguage") {
+                return stored
+            }
+            return Locale.current.language.languageCode?.identifier ?? "en"
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "preferredAudioLanguage")
+        }
+    }
+
     static var streamOnCellular: Bool {
         get { UserDefaults.standard.bool(forKey: "streamOnCellular") }
         set { UserDefaults.standard.set(newValue, forKey: "streamOnCellular") }

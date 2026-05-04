@@ -70,11 +70,21 @@ class PlayerSubtitleModel {
         }
     }
     
+    /// Set when the user has a preferred subtitle language but no matching
+    /// subtitle was found for this title. The player view checks it on
+    /// appear and surfaces a banner — same flow as the audio-language
+    /// warning on the torrent picker.
+    var missingPreferredSubtitleLanguage: String?
+
     func configureUserDefaultSubtitle() {
-        if let preferredLanguage = settings.language {
-            self.currentSubtitle = media.subtitles[preferredLanguage]?.first
-            configurePlayer(subtitle: self.currentSubtitle)
+        guard let preferredLanguage = settings.language else { return }
+        let match = media.subtitles[preferredLanguage]?.first
+        if match == nil {
+            missingPreferredSubtitleLanguage = preferredLanguage
+            print("[Subtitle] preferred language '\(preferredLanguage)' not available; \(media.subtitles.keys.sorted()) are.")
         }
+        self.currentSubtitle = match
+        configurePlayer(subtitle: self.currentSubtitle)
     }
     
     func configurePlayer(subtitle: Subtitle?) {
