@@ -19,25 +19,34 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
     
     struct AlertType: Identifiable {
         enum Choice {
-            case noTorrentsFound, streamOnCellular
+            case noTorrentsFound, streamOnCellular, audioLanguageMissing
         }
 
         var id: Choice
+        var languageDisplay: String?
     }
 
-    
+
     @State var showChooseQualityActionSheet = false
     @State var alert: AlertType?
-    
+    /// Set when the user dismisses the "no torrents in your language" alert
+    /// — proceeds with playback against the full unfiltered list.
+    @State var fallbackToAnyLanguage = false
+
     var body: some View {
         return Button(action: {
             if !Session.streamOnCellular && networkMonitor.currentPath.isExpensive {
                 alert = .init(id: .streamOnCellular)
                 return
             }
-            
+
             if media.torrents.count == 0 {
                 alert = .init(id: .noTorrentsFound)
+            } else if !fallbackToAnyLanguage,
+                      let preferred = preferredLanguageFilter,
+                      preferredLanguageTorrents.isEmpty {
+                let display = (Locale.current.localizedString(forLanguageCode: preferred) ?? preferred).capitalized
+                alert = .init(id: .audioLanguageMissing, languageDisplay: display)
             } else if let torrent = autoSelectTorrent {
                 action(torrent)
             } else {
@@ -71,8 +80,24 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
                         Session.streamOnCellular = true
                       },
                       secondaryButton: .cancel())
+            case .audioLanguageMissing:
+                let lang = alert.languageDisplay ?? "your preferred language"
+                return Alert(
+                    title: Text("No \(lang) audio available"),
+                    message: Text("No torrents in \(lang) were found for this title. Continue with another language?"),
+                    primaryButton: .default(Text("Continue")) {
+                        fallbackToAnyLanguage = true
+                        // Re-run the selection flow against the full list.
+                        if let torrent = autoSelectTorrent {
+                            action(torrent)
+                        } else {
+                            showChooseQualityActionSheet = true
+                        }
+                    },
+                    secondaryButton: .cancel()
+                )
             }
-            
+
         }
         .onAppear {
             if networkMonitor.queue == nil {
@@ -80,42 +105,73 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
             }
         }
     }
-    
+
+    /// User's preferred audio language; `nil` means "no preference, use any".
+    private var preferredLanguageFilter: String? {
+        let raw = Session.preferredAudioLanguage
+        return raw.isEmpty ? nil : raw
+    }
+
+    /// Torrents that match the preferred audio language. Untagged torrents
+    /// (e.g. YTS, which doesn't carry a locale field) are treated as English
+    /// since YTS catalogues English-original releases.
+    private var preferredLanguageTorrents: [Torrent] {
+        guard let preferred = preferredLanguageFilter else { return media.torrents }
+        return media.torrents.filter { ($0.locale ?? "en").lowercased() == preferred.lowercased() }
+    }
+
+    /// Pool to draw from when picking / showing torrents — respects the
+    /// user's audio-language preference unless they've fallen back via the
+    /// "no torrents in your language" alert.
+    private var selectableTorrents: [Torrent] {
+        if fallbackToAnyLanguage { return media.torrents }
+        let filtered = preferredLanguageTorrents
+        return filtered.isEmpty ? media.torrents : filtered
+    }
+
     var autoSelectTorrent: Torrent? {
-        if let quality = Session.autoSelectQuality {
-            let sorted  = media.torrents.sorted(by: <)
-            let torrent = quality == "Highest" ? sorted.last! : sorted.first!
-            return torrent
+        let pool = selectableTorrents
+        if let quality = Session.autoSelectQuality, !pool.isEmpty {
+            let sorted = pool.sorted(by: <)
+            return quality == "Highest" ? sorted.last : sorted.first
         }
-        
+
         #if os(tvOS)
-        if media.torrents.count == 1 {
-            return media.torrents[0]
+        if pool.count == 1 {
+            return pool[0]
         }
         #endif
-        
+
         return nil
     }
 
     @ViewBuilder
     var chooseTorrentsButtons: some View {
-        ForEach(media.torrents.sorted(by: >)) { torrent in
+        ForEach(selectableTorrents.sorted(by: >)) { torrent in
             Button {
                 action(torrent)
             } label: {
                 #if os(iOS) || os(tvOS)
-                Text(verbatim: "\(torrent.quality ?? "") (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
+                Text(verbatim: "\(torrent.quality ?? "")\(localeSuffix(torrent)) (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
                 #elseif os(macOS)
                 torrent.health.image
                 Text(torrent.quality)
                     .fontWeight(.bold)
-                Text(" (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
+                Text(verbatim: "\(localeSuffix(torrent)) (seeds: \(torrent.seeds) - peers: \(torrent.peers))")
                     .foregroundColor(.appLightGray)
                     .font(.system(size: 12, weight: .light))
                 Spacer()
                 #endif
             }
         }
+    }
+
+    /// `" · Russian"` etc., or `""` when the torrent has no locale tag (YTS).
+    private func localeSuffix(_ torrent: Torrent) -> String {
+        guard let code = torrent.locale, !code.isEmpty,
+              let display = Locale.current.localizedString(forLanguageCode: code)
+        else { return "" }
+        return " · \(display.capitalized)"
     }
 }
 

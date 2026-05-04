@@ -157,24 +157,25 @@ public struct Movie: Media, Equatable, Identifiable {
         // locale so the user gets every available source, then dedup by URL
         // keeping the highest seed count.
         var collected: [Torrent] = []
-        let appendQualityDict: ([String: [String: Any]]) -> Void = { qualities in
+        let appendQualityDict: ([String: [String: Any]], String?) -> Void = { qualities, locale in
             for (quality, payload) in qualities {
                 guard quality != "0",
                       var torrent = Mapper<Torrent>().map(JSONObject: payload)
                 else { continue }
                 torrent.quality = quality
+                torrent.locale = locale
                 collected.append(torrent)
             }
         }
         if let allLocales = map["torrents"].currentValue as? [String: [String: [String: Any]]] {
             // Prefer English first; iteration order then doesn't matter
             // because the dedupe below keeps the highest seed count anyway.
-            if let en = allLocales["en"] { appendQualityDict(en) }
+            if let en = allLocales["en"] { appendQualityDict(en, "en") }
             for (locale, qualities) in allLocales where locale != "en" {
-                appendQualityDict(qualities)
+                appendQualityDict(qualities, locale)
             }
         } else if let qualityKeyed = map["torrents"].currentValue as? [String: [String: Any]] {
-            appendQualityDict(qualityKeyed)
+            appendQualityDict(qualityKeyed, nil)
         }
         var byUrl: [String: Torrent] = [:]
         for t in collected {
