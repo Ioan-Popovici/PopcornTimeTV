@@ -10,10 +10,12 @@ build/
 DerivedData/
 VLCKit/
 
-## Vendored upstream sources (re-fetched at build time by
-## Packages/get-popcorntorrent.sh; the script + popcorntorrent.patch
-## are checked in, the cloned tree is not).
-Packages/PopcornTorrent/
+## Packages/PopcornTorrent/ is committed in-tree (vendored from
+## alextud/PopcornTorrent@v2_3 + popcorntorrent.patch). It used to be
+## fetched at build time but the build no longer depends on the
+## upstream remote; only the maintenance helper
+## Packages/refresh-popcorntorrent.sh reaches out, and only when run
+## by hand.
 
 ## Various settings
 *.pbxuser

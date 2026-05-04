@@ -78,17 +78,8 @@ jobs:
           path: ldid-osx
           key: ldid-osx-v2.1.4-16.g5b8581c
 
-      - name: Cache patched PopcornTorrent
-        uses: actions/cache@v4
-        with:
-          path: Packages/PopcornTorrent
-          key: popcorntorrent-${{ hashFiles('Packages/get-popcorntorrent.sh', 'Packages/popcorntorrent.patch') }}
-
       - name: Fetch VLCKit
         run: bash VLCKit/get-vlc-frameworks.sh ${{ matrix.vlc_arg }}
-
-      - name: Vendor PopcornTorrent
-        run: bash Packages/get-popcorntorrent.sh
 
       - name: Build
         run: |
