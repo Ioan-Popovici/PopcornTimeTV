@@ -112,12 +112,15 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
         return raw.isEmpty ? nil : raw
     }
 
-    /// Torrents that match the preferred audio language. Untagged torrents
-    /// (e.g. YTS, which doesn't carry a locale field) are treated as English
-    /// since YTS catalogues English-original releases.
+    /// Torrents whose inferred audio tracks include the preferred language.
+    /// We use `Torrent.audioLanguages` (locale tag + heuristic title parsing
+    /// of Russian-scene release markers) rather than the bare `locale`,
+    /// because a popcorn-api `contentLocale=ru` torrent very often carries
+    /// the English original audio underneath the Russian voiceover (titles
+    /// containing `L`, `MVO`, `Sub`, etc.).
     private var preferredLanguageTorrents: [Torrent] {
-        guard let preferred = preferredLanguageFilter else { return media.torrents }
-        return media.torrents.filter { ($0.locale ?? "en").lowercased() == preferred.lowercased() }
+        guard let preferred = preferredLanguageFilter?.lowercased() else { return media.torrents }
+        return media.torrents.filter { $0.audioLanguages.contains(preferred) }
     }
 
     /// Pool to draw from when picking / showing torrents — respects the
@@ -166,12 +169,16 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
         }
     }
 
-    /// `" · Russian"` etc., or `""` when the torrent has no locale tag (YTS).
+    /// `" · Russian, English"` etc. — the inferred audio tracks the picker
+    /// derives from locale + title, so the user knows the actual language
+    /// they're picking even on releases tagged under a different audience
+    /// locale.
     private func localeSuffix(_ torrent: Torrent) -> String {
-        guard let code = torrent.locale, !code.isEmpty,
-              let display = Locale.current.localizedString(forLanguageCode: code)
-        else { return "" }
-        return " · \(display.capitalized)"
+        let langs = torrent.audioLanguages
+            .compactMap { Locale.current.localizedString(forLanguageCode: $0)?.capitalized }
+            .sorted()
+        guard !langs.isEmpty else { return "" }
+        return " · \(langs.joined(separator: ", "))"
     }
 }
 
