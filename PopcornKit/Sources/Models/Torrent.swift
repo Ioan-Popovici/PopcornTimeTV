@@ -60,7 +60,8 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
     }
     
     private init(_ map: Map) throws {
-        self.url = try map.value("url")
+        let rawUrl: String = try map.value("url")
+        self.url = Torrent.augmentMagnetWithForcedTrackers(rawUrl)
         self.seeds = (try? (try? map.value("seeds")) ?? map.value(("seed"))) ?? 0
         self.peers = (try? (try? map.value("peers")) ?? map.value(("peer"))) ?? 0
         self.size = try? map.value("filesize")
@@ -101,11 +102,56 @@ public struct Torrent: Mappable, Equatable, Comparable, Sendable {
     
     public init(health: Health = .unknown, url: String = "", quality: String = "0p", seeds: Int = 0, peers: Int = 0, size: String? = nil) {
         self.health = health
-        self.url = url
+        self.url = Torrent.augmentMagnetWithForcedTrackers(url)
         self.quality = quality
         self.seeds = seeds
         self.peers = peers
         self.size = size
+    }
+
+    /// Decorate a magnet URI with the same forced-tracker list
+    /// Popcorn-Desktop appends, deduped and `&amp;`-decoded. Many
+    /// popcorn-api magnets in the wild ship with only 1–3 trackers
+    /// (sometimes locale-specific, e.g. `bt.toloka.to` for Ukrainian
+    /// uploads), and libtorrent then has to do peer discovery via DHT
+    /// alone — slow first chunks. Pre-loading the magnet with the same
+    /// 13 trackers the desktop client uses makes peer discovery
+    /// essentially instant.
+    static func augmentMagnetWithForcedTrackers(_ rawUrl: String) -> String {
+        guard rawUrl.lowercased().hasPrefix("magnet:") else { return rawUrl }
+        // Some sources HTML-encode `&` as `&amp;` inside the magnet URL
+        // (we saw this on uxert.link). Normalise so trackers parse.
+        let normalized = rawUrl.replacingOccurrences(of: "&amp;", with: "&")
+
+        // Collect existing tracker hosts so we don't add duplicates.
+        var existing: Set<String> = []
+        for component in normalized.split(separator: "&") {
+            guard component.hasPrefix("tr=") else { continue }
+            let value = String(component.dropFirst(3))
+            if let decoded = value.removingPercentEncoding {
+                existing.insert(Self.trackerKey(decoded))
+            }
+        }
+
+        var result = normalized
+        for tracker in YTS.forcedTrackers {
+            if existing.contains(Self.trackerKey(tracker)) { continue }
+            let encoded = tracker.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? tracker
+            result += "&tr=" + encoded
+            existing.insert(Self.trackerKey(tracker))
+        }
+        return result
+    }
+
+    /// Compare trackers by host:port (ignore `/announce` suffix etc.) so
+    /// we don't double-add the same tracker that's already on the magnet
+    /// in a slightly different form.
+    private static func trackerKey(_ tracker: String) -> String {
+        var t = tracker
+        if let q = t.firstIndex(of: "?") { t = String(t[..<q]) }
+        if t.hasSuffix("/announce") { t = String(t.dropLast("/announce".count)) }
+        if t.hasSuffix("/") { t = String(t.dropLast()) }
+        return t.lowercased()
     }
     
     public mutating func mapping(map: Map) {
