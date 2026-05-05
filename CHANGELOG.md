@@ -1,8 +1,13 @@
 # Changelog
 
-All notable changes are recorded here. Dates are ISO-8601.
+All notable changes are recorded here. Dates are ISO-8601. The
+project adopts [Semantic Versioning](https://semver.org/) and the
+[Gitflow](https://git-flow.sh/workflows/gitflow) branching model
+(`master` for tagged releases, `develop` for integration).
 
-## Unreleased — 2026-05
+## Unreleased
+
+## [4.1.0] — 2026-05-05
 
 ### Added
 - **Mirror-aggregating catalogue + torrent layer** (`PopcornKit/Sources/Managers/MirrorAggregator.swift`).
