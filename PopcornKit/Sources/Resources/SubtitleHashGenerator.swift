@@ -17,44 +17,56 @@ public class OpenSubtitlesHash: NSObject {
     public class func hashFor(_ url: URL) -> VideoHash {
         return self.hashFor(url.path)
     }
-    
+
     public class func hashFor(_ path: String) -> VideoHash {
-        var fileHash = VideoHash(fileHash: "", fileSize: 0)
-        let fileHandler = FileHandle(forReadingAtPath: path)!
-        
-        let fileDataBegin: NSData = fileHandler.readData(ofLength: chunkSize) as NSData
-        fileHandler.seekToEndOfFile()
-        
-        let fileSize: UInt64 = fileHandler.offsetInFile
-        if (UInt64(chunkSize) > fileSize) {
-            return fileHash
+        let emptyHash = VideoHash(fileHash: "", fileSize: 0)
+
+        // Missing file (e.g. early-server-start handed us the path before
+        // libtorrent created the on-disk allocation) → empty hash, callers
+        // fall through to imdb/episode-based subtitle search.
+        guard let fileHandler = FileHandle(forReadingAtPath: path) else {
+            return emptyHash
         }
-        
-        fileHandler.seek(toFileOffset: max(0, fileSize - UInt64(chunkSize)))
-        let fileDataEnd: NSData = fileHandler.readData(ofLength: chunkSize) as NSData
-        
-        var hash: UInt64 = fileSize
-        
-        var data_bytes = UnsafeBufferPointer<UInt64>(
-            start: UnsafePointer(fileDataBegin.bytes.assumingMemoryBound(to: UInt64.self)),
-            count: fileDataBegin.length/MemoryLayout<UInt64>.size
-        )
-        
-        hash = data_bytes.reduce(hash,&+)
-        
-        data_bytes = UnsafeBufferPointer<UInt64>(
-            start: UnsafePointer(fileDataEnd.bytes.assumingMemoryBound(to: UInt64.self)),
-            count: fileDataEnd.length/MemoryLayout<UInt64>.size
-        )
-        
-        hash = data_bytes.reduce(hash,&+)
-        
-        fileHash.fileHash = String(format:"%016qx", arguments: [hash])
-        fileHash.fileSize = fileSize
-        
-        fileHandler.closeFile()
-        
-        return fileHash
+        defer { try? fileHandler.close() }
+
+        do {
+            let fileSize = try fileHandler.seekToEnd()
+            // Need both head and tail chunks for a meaningful hash.
+            guard fileSize >= UInt64(chunkSize) * 2 else {
+                return emptyHash
+            }
+
+            try fileHandler.seek(toOffset: 0)
+            guard let beginData = try fileHandler.read(upToCount: chunkSize),
+                  beginData.count == chunkSize else {
+                return emptyHash
+            }
+
+            try fileHandler.seek(toOffset: fileSize - UInt64(chunkSize))
+            guard let endData = try fileHandler.read(upToCount: chunkSize),
+                  endData.count == chunkSize else {
+                return emptyHash
+            }
+
+            var hash: UInt64 = fileSize
+            beginData.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                for word in raw.bindMemory(to: UInt64.self) {
+                    hash = hash &+ word
+                }
+            }
+            endData.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                for word in raw.bindMemory(to: UInt64.self) {
+                    hash = hash &+ word
+                }
+            }
+
+            return VideoHash(
+                fileHash: String(format: "%016qx", hash),
+                fileSize: fileSize
+            )
+        } catch {
+            return emptyHash
+        }
     }
 }
 

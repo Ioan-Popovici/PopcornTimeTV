@@ -19,7 +19,20 @@ NSNotificationName const PTTorrentStatusDidChangeNotification = @"com.popcorntim
 
 using namespace libtorrent;
 
+// Class-level override for MIN_PIECES. `0` means auto-compute (default).
+// Set from Swift via `+setMinPiecesOverride:` based on
+// `Session.bufferingStrategy` (Fast / Balanced / Smooth).
+static NSInteger sMinPiecesOverride = 0;
+
 @implementation PTTorrentStreamer
+
++ (void)setMinPiecesOverride:(NSInteger)value {
+    sMinPiecesOverride = value;
+}
+
++ (NSInteger)minPiecesOverride {
+    return sMinPiecesOverride;
+}
 
 - (instancetype)init {
     self = [super init];
@@ -136,11 +149,19 @@ using namespace libtorrent;
             // (was 3% of file or up to 20 pieces ~= 80 MB). Popcorn-Desktop's
             // WebTorrent streamer kicks off the moment metadata arrives;
             // libtorrent's HTTP byte-range server can do the same once the
-            // first few pieces are present. 4 pieces ~= 8-16 MB and brings
-            // first-frame latency in line with the desktop client.
-            MIN_PIECES = ((tp.ti->files().file_size(libtorrent::file_index_t(index)) * 0.005) / tp.ti->piece_length());
-            MIN_PIECES = std::max(MIN_PIECES, 4);
-            MIN_PIECES = std::min(MIN_PIECES, 6);
+            // first few pieces are present.
+            //
+            // The user-selectable Buffering Strategy (Settings →
+            // Fast / Balanced / Smooth) sets `+setMinPiecesOverride:`
+            // before play. If set, that wins; otherwise fall back to
+            // the proven 4–6 auto-clamp.
+            if (sMinPiecesOverride > 0) {
+                MIN_PIECES = (int)sMinPiecesOverride;
+            } else {
+                MIN_PIECES = ((tp.ti->files().file_size(libtorrent::file_index_t(index)) * 0.005) / tp.ti->piece_length());
+                MIN_PIECES = std::max(MIN_PIECES, 4);
+                MIN_PIECES = std::min(MIN_PIECES, 6);
+            }
         } else {
             error = [[NSError alloc] initWithDomain:@"com.popcorntimetv.popcorntorrent.error" code:-2 userInfo:@{NSLocalizedDescriptionKey: [NSString localizedStringWithFormat:@"File doesn't exist at path: %@".localizedString, filePath]}];
         }
@@ -236,37 +257,33 @@ using namespace libtorrent;
 {
     auto torrent =  _torrentHandle;
     auto ti = torrent.torrent_file();
-        
+
     //find the torrent piece corresponding to the requested piece of the movie
     auto index = file_index_t([self selectedFileIndexInTorrent:torrent]);
     int64_t fileSize = ti->files().file_size(index);
-    // int64_t forwardRange = range.length > fileSize ? fileSize - 1 : range.location + range.length;
     int length = range.length > INT_MAX ? INT_MAX : int(range.length);
     peer_request request = ti->map_file(index, range.location, length);
-        
-    //set first and last pieces
+
+    //set first and last pieces — wait for MIN_PIECES from start of
+    //VLC's requested range so the GCDWebServerFileResponse's sequential
+    //read never falls into a sparse hole. MIN_PIECES is now driven by
+    //the user-selected Buffering Strategy (Fast / Balanced / Smooth)
+    //via `+[PTTorrentStreamer setMinPiecesOverride:]` — see Session.swift.
     auto startPiece = request.piece;
-    auto finalPiece = startPiece; // + libtorrent::piece_index_t(MIN_PIECES - 1);
+    auto finalPiece = startPiece;
     for (int i = 0; i < MIN_PIECES - 1; i++) {
         finalPiece++;
-        
-        //check if we are over the total pieces of the selected file
         if (finalPiece > lastFilePiece) {
             finalPiece = lastFilePiece;
             break;
         }
     }
-    
-    // when video starts, we already have enough pieces downloaded so video ca start imediately
-    if (startPiece <= piece_index_t(6)) {
-        return YES;
-    }
-    
+
     //set global variables
     firstPiece = startPiece;
     endPiece = finalPiece;
     NSLog(@"fast forwarding to new start piece: %d", (int)startPiece);
-    
+
     //if we already have the requested part of the movie return immediately
     for(auto j = startPiece; j <= finalPiece; j++){
         if (!torrent.have_piece(j)) {
@@ -275,18 +292,18 @@ using namespace libtorrent;
             return YES;
         }
     }
-    
+
     NSLog(@"new start piece missing, downloading...");
     //take control of the array from all of the other threads that might be accessing it
     mtx.lock();
     required_pieces.clear(); //clear all the pieces we wanted to download previously
     mtx.unlock();
-    
+
     //start to download the requested part of the movie
     [self prioritizeNextPieces:torrent];
-    
+
     return NO;
-    
+
 }
 
 
@@ -375,38 +392,62 @@ using namespace libtorrent;
     }
 }
 
+/// Construct a `GCDWebServerFileResponse` for `request` against
+/// `fileURL`. Falls back to a 416 error response if the file response
+/// can't be built (e.g. the file is shorter than the requested
+/// byte-range end). Caller must guarantee the file exists on disk
+/// and contains bytes covering the requested range — the underlying
+/// `GCDWebServerFileResponse initWithFile:byteRange:` calls
+/// `abort()` (not nil) when the file is missing or too short, so
+/// we never want to invoke this from a code path where pieces
+/// might still be downloading.
+- (GCDWebServerResponse *)makeFileResponseForRequest:(GCDWebServerRequest *)request fileURL:(NSURL *)fileURL {
+    GCDWebServerFileResponse *response;
+    if (request.hasByteRange) {
+        response = [[GCDWebServerFileResponse alloc] initWithFile:fileURL.relativePath byteRange:request.byteRange];
+    } else {
+        response = [[GCDWebServerFileResponse alloc] initWithFile:fileURL.relativePath];
+    }
+    if (response == nil) {
+        GCDWebServerErrorResponse *errResponse = [GCDWebServerErrorResponse responseWithStatusCode:416];
+        [errResponse setValue:[NSString stringWithFormat:@"*/%lu", (unsigned long)request.byteRange.location] forAdditionalHeader:@"Content-Range"];
+        return errResponse;
+    }
+    [response setValue:@"*" forAdditionalHeader:@"Access-Control-Allow-Origin"];
+    [response setValue:@"Content-Type" forAdditionalHeader:@"Access-Control-Expose-Headers"];
+    return response;
+}
+
 - (void)startWebServerAndPlay {
     __block NSURL *fileURL = [NSURL fileURLWithPath:[self.savePath stringByAppendingPathComponent:_fileName]];
     __weak __typeof__(self) weakSelf = self;
     NSLog(@"file to be streamed is %@",[self.savePath stringByAppendingPathComponent:_fileName]);
     [self.mediaServer addDefaultHandlerForMethod:@"GET" requestClass:[GCDWebServerRequest class] asyncProcessBlock:^(GCDWebServerRequest *request, GCDWebServerCompletionBlock completionBlock) {
-        GCDWebServerFileResponse *response = [[GCDWebServerFileResponse alloc] init];
-        
-        if (request.hasByteRange) {
-            response = [[GCDWebServerFileResponse alloc]initWithFile:fileURL.relativePath byteRange:request.byteRange];
-        } else {
-            response = [[GCDWebServerFileResponse alloc]initWithFile:fileURL.relativePath];
-        }
-        if (response == nil){
-            GCDWebServerErrorResponse *newResponse = [GCDWebServerErrorResponse responseWithStatusCode:416];
-            [response setValue:[NSString stringWithFormat:@"*/%lu",(unsigned long)request.byteRange.location] forAdditionalHeader:@"Content-Range"];
-            completionBlock(newResponse);
+        // Finished torrents — file is fully on disk, just serve it.
+        if (weakSelf.isFinished) {
+            GCDWebServerResponse *response = [weakSelf makeFileResponseForRequest:request fileURL:fileURL];
+            completionBlock(response);
             return;
         }
-        [response setValue:@"*" forAdditionalHeader:@"Access-Control-Allow-Origin"];
-        [response setValue:@"Content-Type" forAdditionalHeader:@"Access-Control-Expose-Headers"];
-        
-        if (!weakSelf.isFinished) {
-            //if we have the parts downloaded already ready to go we deliver them below
-            if ([weakSelf fastForwardTorrentForRange:request.byteRange]) {
-                completionBlock(response);
-            } else {
-                //we now store the response and the completionBlock inside the requestedRangeInfo dictionary in order to retrieve it when we have downloaded the required pieces successfully and send the response at that time
-                [weakSelf.requestedRangeInfo setObject:response forKey:@"response"];
-                [weakSelf.requestedRangeInfo setObject:completionBlock forKey:@"completionBlock"];
-            }
-        } else {
+
+        // The previous version constructed the
+        // `GCDWebServerFileResponse` up-front and queued it when
+        // pieces weren't ready. That worked while the server only
+        // started after `allRequiredPiecesDownloaded` (file
+        // guaranteed to exist). With the early-server-start
+        // optimisation, the file may not exist on disk yet —
+        // libtorrent creates it lazily on first piece write — and
+        // `GCDWebServerFileResponse initWithFile:byteRange:` calls
+        // `abort()` (rather than returning nil) when the file is
+        // missing. So we now queue the *raw request* and construct
+        // the response in `pieceFinishedAlert` once the file +
+        // required pieces are ready.
+        if ([weakSelf fastForwardTorrentForRange:request.byteRange]) {
+            GCDWebServerResponse *response = [weakSelf makeFileResponseForRequest:request fileURL:fileURL];
             completionBlock(response);
+        } else {
+            [weakSelf.requestedRangeInfo setObject:request forKey:@"request"];
+            [weakSelf.requestedRangeInfo setObject:completionBlock forKey:@"completionBlock"];
         }
     }];
     
@@ -510,10 +551,14 @@ using namespace libtorrent;
     
     // PATCH(MEM.Zone): start playback after a much smaller pre-buffer
     // (was 3% of file or up to 20 pieces ~= 80 MB). See the matching
-    // patch above for the rationale.
-    MIN_PIECES = (ti->files().file_size(file_index) * 0.005) / ti->piece_length();
-    MIN_PIECES = std::max(MIN_PIECES, 4);
-    MIN_PIECES = std::min(MIN_PIECES, 6);
+    // patch above for the rationale + the override hook.
+    if (sMinPiecesOverride > 0) {
+        MIN_PIECES = (int)sMinPiecesOverride;
+    } else {
+        MIN_PIECES = (ti->files().file_size(file_index) * 0.005) / ti->piece_length();
+        MIN_PIECES = std::max(MIN_PIECES, 4);
+        MIN_PIECES = std::min(MIN_PIECES, 6);
+    }
     NSLog(@"min pieces: %d", MIN_PIECES);
     piece_index_t first_piece = ti->map_file(file_index, 0, 0).piece;
     NSLog(@"first piece: %d", (int)first_piece);
@@ -544,6 +589,17 @@ using namespace libtorrent;
         th.piece_priority(piece, top_priority);
         th.set_piece_deadline(piece, PIECE_DEADLINE_MILLIS);
     }
+
+    // Start GCDWebServer + fire `readyToPlayBlock` IMMEDIATELY
+    // now that metadata + piece priorities are set. VLC connects in
+    // parallel with libtorrent's piece download. The range handler
+    // queues VLC's first byte-range request as a raw `request` (not
+    // a constructed response) and `pieceFinishedAlert` builds the
+    // response when pieces arrive — the queue switched from "store
+    // response" to "store request" specifically to make this safe
+    // against `GCDWebServerFileResponse initWithFile:byteRange:`
+    // aborting when the file doesn't yet exist on disk.
+    [self processTorrent:th];
 }
 
 - (void)updateAndMonitorTorrentProgress {
@@ -613,10 +669,17 @@ using namespace libtorrent;
     
     if (allRequiredPiecesDownloaded) {
         if (th.have_piece(endPiece) && self.requestedRangeInfo.count > 0) {
-            GCDWebServerFileResponse *response = [self.requestedRangeInfo objectForKey:@"response"];
+            GCDWebServerRequest *queuedRequest = [self.requestedRangeInfo objectForKey:@"request"];
             GCDWebServerCompletionBlock completionBlock = [self.requestedRangeInfo objectForKey:@"completionBlock"];
             [self.requestedRangeInfo removeAllObjects];
-            completionBlock(response);
+            // File definitely exists by now (libtorrent has written
+            // pieces to it). Construct the response now and fulfil
+            // the queued request.
+            if (queuedRequest && completionBlock) {
+                NSURL *fileURL = [NSURL fileURLWithPath:[self.savePath stringByAppendingPathComponent:_fileName]];
+                GCDWebServerResponse *response = [self makeFileResponseForRequest:queuedRequest fileURL:fileURL];
+                completionBlock(response);
+            }
         }
         if (MIN_PIECES == 0) {
             [self metadataReceivedAlert:th];

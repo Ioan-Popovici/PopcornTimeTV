@@ -16,6 +16,7 @@
 #import <libtorrent/write_resume_data.hpp>
 #import <libtorrent/extensions/smart_ban.hpp>
 #import <libtorrent/extensions/ut_metadata.hpp>
+#import <libtorrent/extensions/ut_pex.hpp>
 #include "libtorrent/hex.hpp" // to_hex
 
 
@@ -89,8 +90,21 @@ using namespace libtorrent;
     _session = new session();
     settings_pack pack = default_settings();
     
+    // Extra DHT bootstrap nodes appended to libtorrent's defaults.
+    // Cold DHT lookups dominate "Connecting to source…" wait time
+    // when the session has just started — more reachable bootstrap
+    // nodes = more parallel paths into the DHT mesh = faster warm.
+    // (Earlier this string had a stray apostrophe after
+    // `dht.transmissionbt.com:6881'` which made TWO of the entries
+    // unresolvable; the syntax error made the slowness even worse.)
     auto dht_nodes = pack.get_str(settings_pack::dht_bootstrap_nodes);
-    dht_nodes += ",router.bittorrent.com:6881,router.utorrent.com:6881,router.bitcomet.com:6881,dht.transmissionbt.com:6881',dht.aelitis.com:6881,";
+    dht_nodes += ",router.bittorrent.com:6881"
+                 ",router.utorrent.com:6881"
+                 ",router.bitcomet.com:6881"
+                 ",dht.transmissionbt.com:6881"
+                 ",dht.aelitis.com:6881"
+                 ",router.silotis.us:6881"
+                 ",dht.libtorrent.org:25401";
     pack.set_str(settings_pack::dht_bootstrap_nodes, dht_nodes);
     
     pack.set_str(settings_pack::listen_interfaces, "0.0.0.0:6881,[::]:6881");
@@ -105,17 +119,77 @@ using namespace libtorrent;
     
     pack.set_bool(settings_pack::listen_system_port_fallback, false);
     pack.set_bool(settings_pack::suggest_read_cache, false);
-    // libtorrent 1.1 enables UPnP & NAT-PMP by default
-    // turn them off before `libt::session` ctor to avoid split second effects
+    // libtorrent 1.1 enables UPnP & NAT-PMP by default. We keep them
+    // off — they were correlated with a stack-corruption SEGV in
+    // `auto_manage_torrents` during session tick (the "split second
+    // effects" the original comment warned about). The peer-pool
+    // benefit isn't worth the stability cost.
     pack.set_bool(settings_pack::enable_upnp, false);
     pack.set_bool(settings_pack::enable_natpmp, false);
     pack.set_bool(settings_pack::upnp_ignore_nonrouters, true);
     pack.set_int(settings_pack::file_pool_size, 2);
+
+    // Tried (and reverted) — every one of these correlated with a
+    // libtorrent crash in `session_impl::on_tick`:
+    //  - `connection_speed: 100` + `max_failcount: 1` → high peer
+    //    churn, std::sort in `request_time_critical_pieces` tripped
+    //    `__check_strict_weak_ordering_sorted` (peer set mutating
+    //    mid-sort).
+    //  - `out_enc_policy = pe_enabled` + UPnP/NAT-PMP → SEGV in
+    //    `auto_manage_torrents → is_inactive`.
+    //  - `request_queue_time = 5` likely fine in isolation but
+    //    bundled with the above changes during the crash session.
+    //
+    // The proven-stable settings above (announce_to_all_*,
+    // connections_limit, unchoke_slots, active_*, ut_pex,
+    // peer_connect_timeout, handshake_timeout) cover the highest-
+    // impact wins without touching the libtorrent code paths that
+    // showed instability. Don't reintroduce the above without first
+    // figuring out why libtorrent's locking model breaks under the
+    // load they create.
+
+    // Tracker behaviour — fan out announces in parallel for fast
+    // peer discovery. Safe (no crash class associated).
+    pack.set_bool(settings_pack::announce_to_all_trackers, true);
+    pack.set_bool(settings_pack::announce_to_all_tiers, true);
+    // Connection / active-torrent limits left at libtorrent defaults
+    // (connections_limit ≈ 200, unchoke_slots ≈ 8, active_* ≈ 5/15).
+    // Two earlier attempts to deviate both backfired:
+    //   - 500 / 14 / 8-12-20 → tick-handler crashes under load.
+    //   - 55  / 8  / 3-2-5    → matched desktop but starved the play
+    //     streamer of peers (only 10 per torrent, pieces dribbling
+    //     in at <1 MB/s, "black screen" because required pieces 0–5
+    //     never arrived fast enough to fire `readyToPlay`).
+    // The defaults sit in the middle and have years of upstream
+    // testing behind them; trust them.
+    // LSD discovers peers on the local network (e.g. another device
+    // streaming the same torrent on home Wi-Fi). Default is on but
+    // make it explicit so a future libtorrent default change doesn't
+    // silently regress this.
+    pack.set_bool(settings_pack::enable_lsd, true);
+
+    // Drop unreachable peers fast. libtorrent's default
+    // `peer_connect_timeout` is 15 s, which means trying to handshake
+    // with a dead seed costs us 15 s of a connection slot. On a
+    // popular torrent like Project Hail Mary with thousands of
+    // listed-but-unreachable seeds (peers behind NAT we can't
+    // initiate to), this thrashes for tens of seconds before we
+    // settle on a useful peer set. Five seconds is a healthy ceiling
+    // for a real seed handshake and gets us past dead peers ~3× faster.
+    pack.set_int(settings_pack::peer_connect_timeout, 5);
+    // Lower handshake-completion timeout for the same reason.
+    pack.set_int(settings_pack::handshake_timeout, 10);
+
     _session->apply_settings(pack);
-    
-    // Enabling plugins
+
+    // Enabling plugins. ut_pex (peer exchange) is the big peer-pool
+    // multiplier — once connected to one peer it gossips other peers'
+    // addresses to us, so the swarm grows organically without further
+    // tracker / DHT round-trips. Previously absent, which left the
+    // session relying entirely on tracker + DHT for every new peer.
     _session->add_extension(&lt::create_smart_ban_plugin);
     _session->add_extension(&lt::create_ut_metadata_plugin);
+    _session->add_extension(&lt::create_ut_pex_plugin);
 }
 
 - (void)setupAlertLoop {
@@ -206,6 +280,13 @@ using namespace libtorrent;
     }
     
     th.set_flags(libtorrent::torrent_flags::sequential_download);
+    // Per-torrent peer cap. 60 is the original project value and
+    // gives the play streamer enough peer parallelism to download
+    // required pieces (0–5) within a few seconds even on cold
+    // swarms. `set_max_connections(10)` (matching desktop's
+    // WebTorrent value) starved the play streamer — pieces arrived
+    // at <1 MB/s and `readyToPlay` never fired, presenting as a
+    // black screen.
     th.set_max_connections(60);
     th.set_max_uploads(10);
     

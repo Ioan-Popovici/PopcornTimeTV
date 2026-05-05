@@ -1,5 +1,83 @@
 
 
+/* Auto-select default — adaptive ranking by source tier × resolution × seeds, with adaptive pre-buffer for smooth playback */
+"Optimal" = "Optimal";
+/* Auto-select — lightweight: lowest resolution, fastest start, lowest bandwidth */
+"Normal" = "Normal";
+/* Auto-select — show the source picker every time the user taps Play */
+"Selectable" = "Selectable";
+/* Legacy auto-select labels kept so older stored values still localize after the rename */
+"Best" = "Optimal";
+/* Picker explanation when every available torrent is a CAM/TS/screener rip */
+"All available sources are camcorder rips — quality may be poor." = "All available sources are camcorder rips — quality may be poor.";
+/* Picker explanation when every torrent has fewer than 5 seeds */
+"Only low-seed sources available — playback may stall." = "Only low-seed sources available — playback may stall.";
+/* Picker explanation when auto-pick chose a sub-720p torrent but a higher-resolution alternative exists */
+"Auto-pick is below 720p — pick manually for higher quality." = "Auto-pick is below 720p — pick manually for higher quality.";
+/* Context-menu item shown on long-press / right-click of the Play button — always opens the source picker */
+"Choose Quality…" = "Choose Quality…";
+
+/* Health-issue toast — repeated buffer stalls during pre-buffer or playback */
+"Playback is unstable — try a different source?" = "Playback is unstable — try a different source?";
+/* Health-issue toast — pre-buffer phase taking too long to complete */
+"Source is slow to start — try a different source?" = "Source is slow to start — try a different source?";
+/* Health-issue toast — peer count collapsed in the first 2 minutes */
+"Source has very few peers — try a different source?" = "Source has very few peers — try a different source?";
+/* Health-issue toast — sustained low download speed while buffer is short */
+"Download speed is too low — try a different source?" = "Download speed is too low — try a different source?";
+/* Health-issue toast button — dismiss the warning and stick with the current source */
+"Keep watching" = "Keep watching";
+/* Health-issue toast button — tear down current player and pick a new torrent */
+"Switch source" = "Switch source";
+
+/* Friendly explanation under the pre-buffer progress when the adaptive gate is waiting for more data — args: seconds buffered, target seconds */
+"Buffering for smooth playback — %@s of %@s ready…" = "Buffering for smooth playback — %@s of %@s ready…";
+/* Friendly explanation under the pre-buffer progress when the adaptive gate is waiting for download speed to catch up — args: current speed, required speed */
+"Waiting for stable connection — %@/s, need %@/s for smooth playback…" = "Waiting for stable connection — %@/s, need %@/s for smooth playback…";
+/* Initial preload status when libtorrent hasn't fired its first progress callback yet — replaces the indeterminate spinner */
+"Connecting to source…" = "Connecting to source…";
+/* Preload status once data is actively flowing in — promoted from "Connecting…" the moment download speed > 0 */
+"Downloading…" = "Downloading…";
+/* Preload status once the adaptive gate has cleared and we're handing off to the player */
+"Starting playback…" = "Starting playback…";
+/* Inline preload prompt shown 10 s in if the user is impatient with "Connecting…" */
+"Taking a while?" = "Taking a while?";
+/* Settings toggle — when off the loading screen shows a plain spinner instead of the bar + stats panel */
+"Show Streaming Details" = "Show Streaming Details";
+
+/* Buffering Strategy picker — three named presets */
+"Buffering Strategy" = "Buffering Strategy";
+"Fast" = "Fast";
+"Balanced" = "Balanced";
+"Smooth" = "Smooth";
+/* One-line description shown in the Settings footer / dialog message */
+"Minimal pre-buffer. Snappy start; may briefly stutter on weak swarms." = "Minimal pre-buffer. Snappy start; may briefly stutter on weak swarms.";
+"A few seconds of headroom. Good balance of start speed and stability." = "A few seconds of headroom. Good balance of start speed and stability.";
+"Bigger buffer. Near-zero stutter risk; ~5-10 s slower to first frame." = "Bigger buffer. Near-zero stutter risk; ~5-10 s slower to first frame.";
+
+/* Title of the picker shown after the user taps "Switch source" in the toast */
+"Choose a different source" = "Choose a different source";
+/* Body text under the swap picker title */
+"The previous source had playback issues. Pick another to continue from where you left off." = "The previous source had playback issues. Pick another to continue from where you left off.";
+
+/* Settings section names */
+"Playback" = "Playback";
+"Language" = "Language";
+"Subtitle Appearance" = "Subtitle Appearance";
+"Accounts" = "Accounts";
+"About" = "About";
+"Advanced" = "Advanced";
+"Storage" = "Storage";
+
+/* Auto Select Quality picker — per-option descriptions, Apple HIG style */
+"Adaptive — picks the best quality your connection can sustain and waits for enough buffer to play without stuttering. Recommended." = "Adaptive — picks the best quality your connection can sustain and waits for enough buffer to play without stuttering. Recommended.";
+"Always picks the highest resolution available. May take longer to start on 4K sources or weak swarms." = "Always picks the highest resolution available. May take longer to start on 4K sources or weak swarms.";
+"Lowest resolution for the fastest start and lowest bandwidth. Useful on slow or metered connections." = "Lowest resolution for the fastest start and lowest bandwidth. Useful on slow or metered connections.";
+"Shows the source picker every time you tap Play, so you can pick the exact release." = "Shows the source picker every time you tap Play, so you can pick the exact release.";
+/* Footer for the Auto Select Quality picker explaining the long-press shortcut */
+"PopcornTime uses this whenever you tap Play. You can override the choice for a single play with long-press / right-click on the Play button." = "PopcornTime uses this whenever you tap Play. You can override the choice for a single play with long-press / right-click on the Play button.";
+/* Body text under the Auto Select Quality picker explaining each mode */
+"Optimal balances quality with smooth playback. Highest picks the maximum resolution. Normal favours fast start over quality. Selectable shows the picker every time." = "Optimal balances quality with smooth playback. Highest picks the maximum resolution. Normal favours fast start over quality. Selectable shows the picker every time.";
 /* Automatically select the Highest quality */
 "Highest" = "Highest";
 /* Automatically select the Lowest quality */

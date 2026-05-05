@@ -32,6 +32,19 @@ struct PopcornTime: App {
                         // bootstrap torrent session
                         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                             PTTorrentsSession.shared()
+                            // The recently-played warmer is currently
+                            // disabled — see the docstring on
+                            // `TorrentSessionWarmer`. It crashed
+                            // libtorrent's auto-manager (SEGV in
+                            // `is_inactive`) and starved fresh play
+                            // streamers of their first-frame pieces by
+                            // monopolising download bandwidth on
+                            // unrelated pieces. The recording side
+                            // (`Session.recordRecentlyPlayed`) stays
+                            // active so the LRU is ready when we
+                            // re-introduce a safer warm strategy.
+                            //
+                            // TorrentSessionWarmer.shared.warmAllRecentlyPlayed()
                         }
                     }
             }

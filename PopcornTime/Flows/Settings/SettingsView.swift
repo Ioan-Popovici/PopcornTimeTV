@@ -41,95 +41,600 @@ struct SettingsView: View {
     @State var selectedSubtitleLanguage = ""
     
     
+    /// Single dispatcher that picks the platform-tuned body. Each
+    /// `<platform>Body` references the same shared row helpers (so a new
+    /// setting only needs one `@ViewBuilder`), but each one is free to
+    /// arrange them with the conventions that platform's Settings.app
+    /// uses — section grouping, header/footer text density, list style,
+    /// row chrome (icons on tvOS), and modal-vs-popover presentations.
     var body: some View {
+        #if os(iOS)
+        iOSBody
+        #elseif os(tvOS)
+        tvOSBody
+        #elseif os(macOS)
+        macOSBody
+        #endif
+    }
+
+    // MARK: - iOS body
+
+    /// iOS Settings convention: insetGrouped list, section headers in
+    /// small caps, section footers in greyed footnote type, push-style
+    /// detail navigation for selection lists. Most controls map 1:1 to
+    /// SwiftUI's defaults — `Toggle` renders as a UISwitch, `Button`
+    /// with `.destructive` role goes red, `TextField` is a plain row.
+    #if os(iOS)
+    var iOSBody: some View {
         HStack (spacing: theme.hStackSpacing) {
-            #if os(tvOS) || os(iOS)
             Image("Icon")
                 .padding(.leading, theme.iconLeading)
                 .hideIfCompactSize()
-            #endif
-            List() {
-                Section(header: sectionHeader("Player")) {
-                    removeCacheOnPlayerExitButton
+            List {
+                Section {
                     qualityAlertButton
-                    audioLanguageButton
+                    bufferingStrategyButton
+                    showStreamingDetailsToggle
                     if viewModel.hasCellularNetwork {
-                        streamOnCellularButton
+                        streamOnCellularToggle
                     }
-                }
-                Section(header: sectionHeader("Subtitles")) {
+                } header: { Text("Playback") }
+                  footer: { Text("Choose the auto-pick strategy, the buffering strategy, what the loading screen shows, and where streaming is allowed.") }
+
+                Section {
+                    audioLanguageButton
                     subtitleLanguageButton
-                    #if os(tvOS) || os(iOS)
+                } header: { Text("Language") }
+                  footer: { Text("Audio language picks the torrent that contains the right track. Subtitle language preselects matching subtitles for download.") }
+
+                Section {
                     subtitleFontSizeButton
                     subtitleFontColorButton
                     subtitleFontButton
                     subtitleFontStyleButton
                     subtitleEncondingButton
-                    #endif
+                } header: { Text("Subtitle Appearance") }
+
+                Section {
+                    trackButton
+                    openSubtitlesButton
+                } header: { Text("Accounts") }
+                  footer: { Text("Sync watch history with Trakt and download additional subtitles from OpenSubtitles.com.") }
+
+                popcornServerSection
+
+                apiEndpointsSection
+
+                Section {
+                    removeCacheOnPlayerExitToggle
+                    clearCacheButton
+                } header: { Text("Storage") }
+                  footer: { Text("Cached video data accumulates while you watch. Clearing it recovers disk space; the next play has to re-download.") }
+            }
+            .listStyle(.insetGrouped)
+            .padding(.trailing, theme.iconLeading)
+        }
+        .navigationBarHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+    #endif
+
+    // MARK: - tvOS body
+
+    /// tvOS Settings convention (Apple Music / TV / Podcasts): grouped
+    /// list, every row has a leading SF Symbol icon (visual scanability
+    /// matters far more on a 10-foot UI), no section footers (Apple
+    /// drops them on tvOS — the explanation lives in the drill-down
+    /// detail screen instead), boolean rows render as "Title · On/Off"
+    /// rather than as switch widgets (Apple's own apps don't use UISwitch
+    /// on tvOS — the Siri Remote has no precision drag, so a tappable
+    /// row that flips its label is more direct), and selection lists
+    /// present as modal sheets via `fullScreenContent`.
+    #if os(tvOS)
+    var tvOSBody: some View {
+        HStack(spacing: theme.hStackSpacing) {
+            Image("Icon")
+                .padding(.leading, theme.iconLeading)
+                .hideIfCompactSize()
+            List {
+                Section { Text("Playback") }
+                Section {
+                    tvOSChoiceRow(icon: "wand.and.stars",
+                                  title: "Auto Select Quality",
+                                  value: Session.autoSelectQuality.localized) {
+                        showQualityAlert = true
+                    }
+                    tvOSChoiceRow(icon: "speedometer",
+                                  title: "Buffering Strategy",
+                                  value: bufferingStrategy.localized) {
+                        showBufferingStrategyAlert = true
+                    }
+                    tvOSToggleRow(icon: "info.circle",
+                                  title: "Show Streaming Details",
+                                  isOn: $showStreamingDetails) { Session.showStreamingDetails = $0 }
+                    if viewModel.hasCellularNetwork {
+                        tvOSToggleRow(icon: "antenna.radiowaves.left.and.right",
+                                      title: "Stream on Cellular",
+                                      isOn: $streamOnCellular) { Session.streamOnCellular = $0 }
+                    }
                 }
-                Section(header: sectionHeader("Services")) {
+
+                Section { Text("Language") }
+                Section {
+                    tvOSChoiceRow(icon: "speaker.wave.2.fill",
+                                  title: "Audio Language",
+                                  value: audioLanguageDisplay) {
+                        showAudioLanguageAlert = true
+                    }
+                    tvOSChoiceRow(icon: "captions.bubble.fill",
+                                  title: "Subtitle Language",
+                                  value: subtitleSettings.language ?? "None".localized) {
+                        showSubtitleLanguageAlert = true
+                    }
+                }
+
+                Section { Text("Subtitle Appearance") }
+                Section {
+                    tvOSChoiceRow(icon: "textformat.size",
+                                  title: "Size",
+                                  value: subtitleSettings.size.localizedString) {
+                        showSubtitleFontSizeAlert = true
+                    }
+                    tvOSChoiceRow(icon: "paintpalette.fill",
+                                  title: "Color",
+                                  value: SubtitleColor.allCases.first(where: { $0 == subtitleSettings.color })?.localizedString ?? "") {
+                        showSubtitleFontColorAlert = true
+                    }
+                    tvOSChoiceRow(icon: "textformat",
+                                  title: "Font",
+                                  value: subtitleSettings.fontFamilyName) {
+                        showSubtitleFontAlert = true
+                    }
+                    tvOSChoiceRow(icon: "italic",
+                                  title: "Style",
+                                  value: subtitleSettings.style.localizedString) {
+                        showSubtitleFontStyleAlert = true
+                    }
+                    tvOSChoiceRow(icon: "character.book.closed.fill",
+                                  title: "Encoding",
+                                  value: subtitleSettings.encoding) {
+                        showSubtitleEncondingAlert = true
+                    }
+                }
+
+                Section { Text("Accounts") }
+                Section {
                     trackButton
                     openSubtitlesButton
                 }
-                
-                Section(header: sectionHeader("Info")) {
+
+                Section { Text("Storage") }
+                Section {
+                    tvOSToggleRow(icon: "trash.slash",
+                                  title: "Clear Cache Upon Exit",
+                                  isOn: $clearCacheOnExit) { Session.removeCacheOnPlayerExit = $0 }
                     clearCacheButton
-//                    button(text: "Check for Updates", value: lastUpdate) {
-//
-//                    }
-                    button(text: "Version", value: viewModel.version) {
-                        
-                    }
-                    
-                    TextField("Edit Popcorn url", text: $viewModel.serverUrl)
-                        .onSubmit {
-                            viewModel.changeUrl(viewModel.serverUrl)
-                        }
-                        .font(.system(size: theme.fontSize, weight: .medium))
                 }
             }
-            #if os(iOS) || os(tvOS)
             .listStyle(GroupedListStyle())
             .padding(.trailing, theme.iconLeading)
-            #endif
         }
-        #if os(iOS)
-        .navigationBarHidden(true)
-        .navigationBarTitleDisplayMode(.inline)
+        // Modal presentations live at the body level so they don't get
+        // reattached every time a row redraws. tvOS uses
+        // `fullScreenContent` for selection lists per Apple HIG.
+        .fullScreenContent(isPresented: $showQualityAlert, title: "Auto Select Quality") {
+            QualityPickerView()
+        }
+        .confirmationDialog("Buffering Strategy", isPresented: $showBufferingStrategyAlert, titleVisibility: .visible, actions: {
+            ForEach(["Fast", "Balanced", "Smooth"], id: \.self) { strategy in
+                Button(strategy.localized) {
+                    bufferingStrategy = strategy
+                    Session.bufferingStrategy = strategy
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        }, message: { Text(bufferingDescription(for: bufferingStrategy)) })
+        .actionSheet(isPresented: $showAudioLanguageAlert) { audioLanguageAlert }
+        .actionSheet(isPresented: $showSubtitleLanguageAlert) { subtitleLanguageAlert }
+        .actionSheet(isPresented: $showSubtitleFontSizeAlert) { subtitleFontSizeAlert }
+        .actionSheet(isPresented: $showSubtitleFontColorAlert) { subtitleFontColorAlert }
+        .actionSheet(isPresented: $showSubtitleFontAlert) { subtitleFontAlert }
+        .actionSheet(isPresented: $showSubtitleFontStyleAlert) { subtitleFontStyleAlert }
+        .actionSheet(isPresented: $showSubtitleEncondingAlert) { subtitleEncondingAlert }
+    }
+    #endif
+
+    // MARK: - macOS body
+
+    /// macOS System Settings convention (Ventura+): `Form` with
+    /// `.formStyle(.grouped)` for rounded-card sections, native
+    /// `Picker(.menu)` dropdowns inline in rows (not popovers — Apple
+    /// reserves popovers for richer pickers; basic enumerations get a
+    /// dropdown directly in the row), `LabeledContent` to align labels
+    /// with their controls, system default fonts (Form's body text is
+    /// 13pt — `theme.fontSize` of 20pt blew up rows visibly), and
+    /// `Button(role: .destructive)` rendered in red.
+    #if os(macOS)
+    /// Local mirror of the persisted quality choice for the macOS
+    /// `Picker`. Updated on every render so external changes (e.g. the
+    /// long-press shortcut writing a different value) re-sync.
+    @State private var macOSQualitySelection: String = Session.autoSelectQuality
+
+    /// One-line description for the currently-selected quality mode —
+    /// rendered as the section footer so the explanation tracks the
+    /// dropdown selection. Same copy as `QualityPickerView` so the two
+    /// surfaces stay consistent.
+    private func qualityDescription(for value: String) -> String {
+        switch value {
+        case "Optimal":
+            return "Adaptive — picks the best quality your connection can sustain and waits for enough buffer to play without stuttering. Recommended.".localized
+        case "Highest":
+            return "Always picks the highest resolution available. May take longer to start on 4K sources or weak swarms.".localized
+        case "Normal":
+            return "Lowest resolution for the fastest start and lowest bandwidth. Useful on slow or metered connections.".localized
+        case "Selectable":
+            return "Shows the source picker every time you tap Play, so you can pick the exact release.".localized
+        default:
+            return ""
+        }
+    }
+
+    var macOSBody: some View {
+        Form {
+            Section {
+                Picker("Auto Select Quality", selection: $macOSQualitySelection) {
+                    Text("Optimal").tag("Optimal")
+                    Text("Highest").tag("Highest")
+                    Text("Normal").tag("Normal")
+                    Text("Selectable").tag("Selectable")
+                }
+                .pickerStyle(.menu)
+                .onChange(of: macOSQualitySelection) { _, v in
+                    Session.autoSelectQuality = v
+                }
+
+                Picker("Buffering Strategy", selection: $bufferingStrategy) {
+                    Text("Fast").tag("Fast")
+                    Text("Balanced").tag("Balanced")
+                    Text("Smooth").tag("Smooth")
+                }
+                .pickerStyle(.menu)
+                .onChange(of: bufferingStrategy) { _, v in
+                    Session.bufferingStrategy = v
+                }
+
+                Toggle("Show Streaming Details", isOn: $showStreamingDetails)
+                    .onChange(of: showStreamingDetails) { _, v in Session.showStreamingDetails = v }
+
+                if viewModel.hasCellularNetwork {
+                    Toggle("Stream on Cellular", isOn: $streamOnCellular)
+                        .onChange(of: streamOnCellular) { _, v in Session.streamOnCellular = v }
+                }
+            } header: {
+                Text("Playback")
+            } footer: {
+                // Dynamic description — switches between the auto-
+                // quality and buffering-strategy explanations based
+                // on which dropdown the user last touched. Mirrors
+                // Apple System Settings' pattern where the footer
+                // explains the active selection.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(qualityDescription(for: macOSQualitySelection))
+                    Text(bufferingDescription(for: bufferingStrategy))
+                }
+            }
+
+            Section {
+                Picker("Audio Language", selection: $selectedAudioLanguage) {
+                    ForEach(["Any"] + Locale.commonLanguages, id: \.self) { language in
+                        Text(language.localized).tag(language)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: selectedAudioLanguage) { _, newValue in
+                    if newValue == "Any" {
+                        Session.preferredAudioLanguage = ""
+                    } else if let code = Self.languageCode(for: newValue) {
+                        Session.preferredAudioLanguage = code
+                    }
+                }
+
+                Picker("Subtitle Language", selection: $selectedSubtitleLanguage) {
+                    ForEach(["None"] + Locale.commonLanguages, id: \.self) { language in
+                        Text(language.localized).tag(language)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: selectedSubtitleLanguage) { _, newValue in
+                    subtitleSettings.language = newValue == "None" ? nil : newValue
+                    subtitleSettings.save()
+                }
+            } header: {
+                Text("Language")
+            } footer: {
+                Text("Audio language picks torrents whose audio track matches. Subtitle language pre-selects matching subtitles when downloading.")
+            }
+
+            Section {
+                LabeledContent("Trakt") {
+                    Button(viewModel.isTraktLoggedIn ? "Sign Out" : "Sign In") {
+                        if viewModel.isTraktLoggedIn { showTraktAlert = true }
+                        else { showTraktView = true }
+                    }
+                }
+                LabeledContent("OpenSubtitles.com") {
+                    HStack(spacing: 6) {
+                        if viewModel.isOpenSubtitlesLoading {
+                            ProgressView().controlSize(.small)
+                        }
+                        Button(viewModel.isOpenSubtitlesLoggedIn ? "Sign Out" : "Sign In") {
+                            if viewModel.isOpenSubtitlesLoggedIn { showOpenSubtitlesLogout = true }
+                            else { showOpenSubtitlesLogin = true }
+                        }
+                    }
+                }
+            } header: {
+                Text("Accounts")
+            } footer: {
+                Text("Sync watch history with Trakt; download additional subtitles via OpenSubtitles.com.")
+            }
+
+            popcornServerSection
+
+            apiEndpointsSection
+
+            Section {
+                Toggle("Clear cache on quit", isOn: $clearCacheOnExit)
+                    .onChange(of: clearCacheOnExit) { _, v in Session.removeCacheOnPlayerExit = v }
+                Button(role: .destructive) {
+                    // Clear synchronously, capture the result message,
+                    // *then* trigger the alert so its body sees the
+                    // updated `viewModel.clearCache.message`.
+                    viewModel.clearCache.emptyCache()
+                    showClearCacheAlert = true
+                } label: {
+                    Text("Clear All Cache Now")
+                }
+            } header: {
+                Text("Storage")
+            } footer: {
+                Text("Cached video data accumulates while you watch. Clearing it recovers disk space; the next play has to re-download.")
+            }
+        }
+        .formStyle(.grouped)
+        // Result confirmation for "Clear All Cache" — attached at the
+        // Form level rather than to the Button itself. macOS Form
+        // intercepts some modifier attachments on nested Buttons, so
+        // the dialog would silently fail to present. Using
+        // `confirmationDialog` rather than `alert` to match the rest
+        // of the SettingsView's modal pattern (Trakt sign-out etc).
+        .confirmationDialog(
+            "Clear Cache",
+            isPresented: $showClearCacheAlert,
+            titleVisibility: .visible,
+            actions: { Button("OK") {} },
+            message: { Text(viewModel.clearCache.message) }
+        )
+        // Trakt sign-out + sign-in attached at body level so they aren't
+        // re-bound on every row redraw.
+        .fullScreenContent(isPresented: $showTraktView, title: "Trakt") {
+            TraktView(viewModel: TraktViewModel(onSuccess: {
+                self.viewModel.traktDidLoggedIn()
+                self.showTraktView = false
+            }))
+        }
+        .confirmationDialog("Sign Out", isPresented: $showTraktAlert, actions: {
+            Button("Sign Out") { viewModel.traktLogout() }
+            Button("Cancel", role: .cancel, action: {})
+        }, message: { Text("Are you sure you want to Sign Out?") })
+        .alert("OpenSubtitles.com", isPresented: $showOpenSubtitlesLogin) {
+            TextField("Username", text: $openSubtitlesUsername)
+                .textContentType(.username).textCase(.lowercase)
+            SecureField("Password", text: $openSubtitlesPassword)
+                .textContentType(.password)
+            Button("Cancel") {
+                showOpenSubtitlesLogin = false
+                openSubtitlesUsername = ""; openSubtitlesPassword = ""
+                viewModel.openSubtitlesLoginError = nil
+            }
+            Button("Login") {
+                viewModel.openSubtitlesLogin(username: openSubtitlesUsername, password: openSubtitlesPassword)
+            }
+            .disabled(openSubtitlesUsername.isEmpty || openSubtitlesPassword.isEmpty || viewModel.isOpenSubtitlesLoading)
+        } message: {
+            if let error = viewModel.openSubtitlesLoginError, !error.isEmpty {
+                Text("Error: \(error)")
+            } else {
+                Text("Sign in to download subtitles.")
+            }
+        }
+        .confirmationDialog("Sign Out", isPresented: $showOpenSubtitlesLogout, actions: {
+            Button("Sign Out") { viewModel.openSubtitlesLogout() }
+            Button("Cancel", role: .cancel) { }
+        }, message: { Text("Are you sure you want to sign out of OpenSubtitles?") })
+        .onAppear {
+            // Mirror the persisted language codes into the macOS Picker
+            // bindings on first appear; the picker stores the localised
+            // *display name*, but Session stores the ISO code.
+            let audioCode = Session.preferredAudioLanguage
+            if audioCode.isEmpty {
+                selectedAudioLanguage = "Any"
+            } else if let name = Locale.current.localizedString(forLanguageCode: audioCode) {
+                selectedAudioLanguage = name.capitalized
+            } else {
+                selectedAudioLanguage = "Any"
+            }
+            selectedSubtitleLanguage = subtitleSettings.language ?? "None"
+        }
+        .onChange(of: viewModel.isOpenSubtitlesLoggedIn) { _, loggedIn in
+            if loggedIn {
+                showOpenSubtitlesLogin = false
+                openSubtitlesUsername = ""; openSubtitlesPassword = ""
+            }
+        }
+    }
+    #endif
+
+    // MARK: - tvOS row helpers
+
+    #if os(tvOS)
+    /// "Title · value · chevron" row prefixed with an SF Symbol —
+    /// used for any tappable row that opens a detail screen. Mirrors
+    /// the visual pattern of every row in Apple Music's tvOS Settings.
+    @ViewBuilder
+    private func tvOSChoiceRow(
+        icon: String,
+        title: LocalizedStringKey,
+        value: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 36)
+                Text(title)
+                Spacer()
+                Text(value)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+            .font(.system(size: theme.fontSize, weight: .medium))
+        }
+    }
+
+    /// Boolean row in tvOS style — title on the left, "On" / "Off"
+    /// text on the right. Tapping anywhere on the row toggles the
+    /// value. Apple does not use UISwitch on tvOS because the Siri
+    /// Remote has no drag-to-toggle gesture.
+    @ViewBuilder
+    private func tvOSToggleRow(
+        icon: String,
+        title: LocalizedStringKey,
+        isOn: Binding<Bool>,
+        write: @escaping (Bool) -> Void
+    ) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+            write(isOn.wrappedValue)
+        } label: {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 36)
+                Text(title)
+                Spacer()
+                Text(isOn.wrappedValue ? "On".localized : "Off".localized)
+                    .foregroundColor(.secondary)
+            }
+            .font(.system(size: theme.fontSize, weight: .medium))
+        }
+    }
+    #endif
+
+    
+    /// Mirror Session-backed booleans into local @State so SwiftUI
+    /// rebuilds the Toggle row when the user flips it. The didSet
+    /// hooks write back to the Session UserDefaults wrapper.
+    @State private var clearCacheOnExit: Bool = Session.removeCacheOnPlayerExit
+    @State private var streamOnCellular: Bool = Session.streamOnCellular
+    @State private var showStreamingDetails: Bool = Session.showStreamingDetails
+    @State private var bufferingStrategy: String = Session.bufferingStrategy
+    @State private var showBufferingStrategyAlert = false
+
+    @ViewBuilder
+    var removeCacheOnPlayerExitToggle: some View {
+        Toggle("Clear Cache Upon Exit", isOn: $clearCacheOnExit)
+            .font(.system(size: theme.fontSize, weight: .medium))
+            .onChange(of: clearCacheOnExit) { _, newValue in
+                Session.removeCacheOnPlayerExit = newValue
+            }
+    }
+
+    @ViewBuilder
+    var streamOnCellularToggle: some View {
+        Toggle("Stream on cellular network", isOn: $streamOnCellular)
+            .font(.system(size: theme.fontSize, weight: .medium))
+            .onChange(of: streamOnCellular) { _, newValue in
+                Session.streamOnCellular = newValue
+            }
+    }
+
+    /// Toggle that flips `Session.showStreamingDetails` — when off,
+    /// the preload screen renders just a centered spinner instead of
+    /// the linear bar + stats panel + status text. Lives in the
+    /// Playback section of every platform body.
+    @ViewBuilder
+    var showStreamingDetailsToggle: some View {
+        Toggle("Show Streaming Details", isOn: $showStreamingDetails)
+            .font(.system(size: theme.fontSize, weight: .medium))
+            .onChange(of: showStreamingDetails) { _, newValue in
+                Session.showStreamingDetails = newValue
+            }
+    }
+
+    /// iOS / tvOS row that opens the Buffering Strategy
+    /// confirmation dialog. macOS bypasses this and renders an
+    /// inline `Picker(.menu)` directly.
+    @ViewBuilder
+    var bufferingStrategyButton: some View {
+        button(text: "Buffering Strategy", value: bufferingStrategy.localized) {
+            showBufferingStrategyAlert = true
+        }
+        #if os(iOS) || os(tvOS)
+        .confirmationDialog("Buffering Strategy", isPresented: $showBufferingStrategyAlert, titleVisibility: .visible, actions: {
+            ForEach(["Fast", "Balanced", "Smooth"], id: \.self) { strategy in
+                Button(strategy.localized) {
+                    bufferingStrategy = strategy
+                    Session.bufferingStrategy = strategy
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        }, message: { Text(bufferingDescription(for: bufferingStrategy)) })
         #endif
     }
-    
-    @State var clearCacheText = Session.removeCacheOnPlayerExit ? "On".localized : "Off".localized
-    @ViewBuilder
-    var removeCacheOnPlayerExitButton: some View {
-        button(text: "Clear Cache Upon Exit", value: clearCacheText) {
-            Session.removeCacheOnPlayerExit.toggle()
-            clearCacheText = Session.removeCacheOnPlayerExit ? "On".localized : "Off".localized
+
+    /// One-liner explaining what each buffering strategy means.
+    /// Reused as the macOS Picker's dynamic footer (changes with
+    /// the dropdown selection) and the iOS/tvOS confirmation
+    /// dialog's `message`.
+    func bufferingDescription(for value: String) -> String {
+        switch value {
+        case "Fast":
+            return "Minimal pre-buffer. Snappy start; may briefly stutter on weak swarms.".localized
+        case "Balanced":
+            return "A few seconds of headroom. Good balance of start speed and stability.".localized
+        case "Smooth":
+            return "Bigger buffer. Near-zero stutter risk; ~5-10 s slower to first frame.".localized
+        default:
+            return ""
         }
     }
     
-    @State var streamOnCellularText = Session.streamOnCellular ? "On".localized : "Off".localized
-    @ViewBuilder
-    var streamOnCellularButton: some View {
-        button(text: "Stream on cellular network", value: streamOnCellularText) {
-            Session.streamOnCellular.toggle()
-            streamOnCellularText = Session.streamOnCellular ? "On".localized : "Off".localized
-        }
-    }
-    
+    /// Apple HIG pattern for "single selection from options with rich
+    /// per-option context": tapping the row presents a detail screen
+    /// showing every option with its title + description + checkmark.
+    /// This mirrors iOS Settings → Display → Auto-Lock and macOS System
+    /// Settings → Lock Screen, where each option is annotated with what
+    /// it does so the user can decide before committing.
     @ViewBuilder
     var qualityAlertButton: some View {
-        button(text: "Auto Select Quality", value: Session.autoSelectQuality?.localized ?? "Off".localized) {
+        // `currentQuality` is read fresh on every render so the
+        /// row re-mirrors the new selection after the picker dismisses.
+        let current = Session.autoSelectQuality
+        button(text: "Auto Select Quality", value: current.localized) {
             showQualityAlert = true
         }
-        .confirmationDialog("Auto Select Quality", isPresented: $showQualityAlert, actions: {
-            ForEach(["Off", "Highest", "Lowest"], id: \.self) { quality in
-                Button(quality) {
-                    Session.autoSelectQuality = quality == "Off" ? nil : quality
-                }
-                Button("Cancel", role: .cancel) { }
-            }
-        }, message: { Text("Choose a default quality. If said quality is available, it will be automatically selected.") })
+        #if os(tvOS) || os(iOS)
+        .fullScreenContent(isPresented: $showQualityAlert, title: "Auto Select Quality") {
+            QualityPickerView()
+        }
+        #else
+        .popover(isPresented: $showQualityAlert) {
+            QualityPickerView()
+                .frame(width: 460, height: 380)
+        }
+        #endif
     }
 
     /// Drives the value shown in the "Audio Language" row. Empty string
@@ -413,10 +918,22 @@ struct SettingsView: View {
     
     @ViewBuilder
     var clearCacheButton: some View {
-        button(text: "Clear All Cache", value: "") {
+        // Apple HIG: a destructive action gets `role: .destructive`
+        // which renders red on iOS / macOS / tvOS automatically — no
+        // need to manually apply `.foregroundColor(.red)`.
+        Button(role: .destructive) {
             viewModel.clearCache.emptyCache()
             showClearCacheAlert = true
+        } label: {
+            HStack {
+                Text("Clear All Cache")
+                Spacer()
+            }
+            .font(.system(size: theme.fontSize, weight: .medium))
         }
+        #if os(macOS)
+        .buttonStyle(.borderless)
+        #endif
         .confirmationDialog(viewModel.clearCache.message, isPresented: $showClearCacheAlert, titleVisibility: .visible, actions: {
             Button("OK") {}
         })
@@ -548,6 +1065,143 @@ struct SettingsView: View {
     func sectionHeader(_ text: String) -> some View {
         return Text(text.localized.uppercased())
     }
+
+    // MARK: - Popcorn server list
+
+    /// List-shape UI for the Popcorn API server fallback list. Each
+    /// row is a single URL; the user can swipe-to-delete on iOS or
+    /// tap the inline `−` on macOS, add a new URL via the "Add Server"
+    /// row at the bottom, and reset the whole list to the bundled
+    /// `Popcorn.fallbackMirrors` defaults. Skipped on tvOS — same
+    /// reasoning as `apiEndpointsSection` (in-list TextField focus
+    /// is awkward there).
+    @ViewBuilder
+    var popcornServerSection: some View {
+        #if os(macOS) || os(iOS)
+        Section {
+            ForEach(viewModel.popcornUrls, id: \.self) { url in
+                #if os(macOS)
+                HStack {
+                    Text(url)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button {
+                        viewModel.removePopcornUrl(url)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove server")
+                }
+                #else
+                Text(url)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                #endif
+            }
+            #if os(iOS)
+            .onDelete { offsets in viewModel.removePopcornUrls(at: offsets) }
+            #endif
+
+            HStack {
+                TextField(
+                    "https://example.com",
+                    text: $viewModel.newPopcornUrl
+                )
+                #if os(macOS)
+                .textFieldStyle(.roundedBorder)
+                #else
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                #endif
+                .onSubmit { viewModel.addPopcornUrl() }
+                let canAdd = !viewModel.newPopcornUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                Button {
+                    viewModel.addPopcornUrl()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(canAdd ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canAdd)
+            }
+
+            Button {
+                viewModel.restorePopcornUrlDefaults()
+            } label: {
+                Text("Restore Defaults")
+            }
+        } header: {
+            Text("Popcorn API Servers")
+        } footer: {
+            Text("The app tries each server in order until one responds. Add custom servers for testing or restore the bundled defaults.")
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
+    // MARK: - API Endpoints (testing)
+
+    /// Editable URLs for every public API the app fetches from
+    /// (Trakt, TMDB, Fanart, OpenSubtitles, OMDb, YTS, DHT). Active
+    /// values are read at first access of `<Service>.base`, so
+    /// changes apply on next app launch — the footer makes that
+    /// explicit. Skipped on tvOS where in-place text editing inside
+    /// a settings list is awkward (focus, on-screen keyboard); the
+    /// matching iOS / macOS UI is the testing surface.
+    @ViewBuilder
+    var apiEndpointsSection: some View {
+        #if os(macOS) || os(iOS)
+        Section {
+            ForEach(APIEndpoint.allCases, id: \.self) { endpoint in
+                let binding = Binding<String>(
+                    get: { viewModel.endpointURLs[endpoint] ?? endpoint.url },
+                    set: { viewModel.endpointURLs[endpoint] = $0 }
+                )
+                #if os(macOS)
+                LabeledContent(endpoint.displayName) {
+                    TextField("", text: binding, prompt: Text(endpoint.defaultURL))
+                        .onSubmit {
+                            viewModel.setEndpointURL(binding.wrappedValue, for: endpoint)
+                        }
+                        .textFieldStyle(.roundedBorder)
+                }
+                #else
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(endpoint.displayName)
+                        .font(.system(size: theme.fontSize, weight: .regular))
+                    TextField(endpoint.defaultURL, text: binding)
+                        .onSubmit {
+                            viewModel.setEndpointURL(binding.wrappedValue, for: endpoint)
+                        }
+                        .font(.system(size: theme.fontSize - 2, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                }
+                #endif
+            }
+            if viewModel.hasAnyEndpointOverride {
+                Button(role: .destructive) {
+                    viewModel.resetAllEndpoints()
+                } label: {
+                    Text("Reset all to defaults")
+                }
+            }
+        } header: {
+            Text("API Endpoints")
+        } footer: {
+            Text("Override the URLs the app fetches from for testing or routing through a proxy. Press return to apply; changes take effect on next launch. Leave empty (or matching the default) to clear an override.")
+        }
+        #else
+        EmptyView()
+        #endif
+    }
 }
 
 extension SettingsView {
@@ -558,8 +1212,106 @@ extension SettingsView {
     }
 }
 
+/// Detail view for the Auto Select Quality setting, modelled on the
+/// iOS Settings → Display → Auto-Lock pattern: a list of every option
+/// where each row carries a one-line description of what it does, and
+/// a checkmark marks the active selection. Tapping a row commits the
+/// choice immediately and dismisses, matching Apple's HIG for
+/// settings-style selection screens (no separate "Save" button — the
+/// commit is the tap).
+struct QualityPickerView: View {
+    @Environment(\.dismiss) var dismiss
+    /// Local mirror of the stored selection so the UI updates instantly
+    /// on tap; we still write through to `Session.autoSelectQuality` so
+    /// the change persists.
+    @State private var selection: String = Session.autoSelectQuality
+
+    private struct Option: Identifiable {
+        let id: String
+        let title: LocalizedStringKey
+        let description: LocalizedStringKey
+    }
+
+    /// Order: Optimal (recommended) first, then Highest, Normal,
+    /// Selectable. Matches the order in the Settings row's value text
+    /// label and the tier ordering in the spec.
+    private let options: [Option] = [
+        Option(id: "Optimal",
+               title: "Optimal",
+               description: "Adaptive — picks the best quality your connection can sustain and waits for enough buffer to play without stuttering. Recommended."),
+        Option(id: "Highest",
+               title: "Highest",
+               description: "Always picks the highest resolution available. May take longer to start on 4K sources or weak swarms."),
+        Option(id: "Normal",
+               title: "Normal",
+               description: "Lowest resolution for the fastest start and lowest bandwidth. Useful on slow or metered connections."),
+        Option(id: "Selectable",
+               title: "Selectable",
+               description: "Shows the source picker every time you tap Play, so you can pick the exact release."),
+    ]
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(options) { option in
+                    Button {
+                        selection = option.id
+                        Session.autoSelectQuality = option.id
+                        dismiss()
+                    } label: {
+                        optionRow(option)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } footer: {
+                Text("PopcornTime uses this whenever you tap Play. You can override the choice for a single play with long-press / right-click on the Play button.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+        }
+        #if os(iOS) || os(tvOS)
+        .listStyle(GroupedListStyle())
+        #endif
+    }
+
+    @ViewBuilder
+    private func optionRow(_ option: Option) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            // Apple's selection-list pattern uses a checkmark on the
+            // leading edge for the active row and nothing for the rest
+            // (no empty circle), so the row's chrome doesn't compete
+            // with the description text.
+            Image(systemName: "checkmark")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.accentColor)
+                .opacity(selection == option.id ? 1 : 0)
+                .frame(width: 18)
+                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(option.title)
+                    .font(.body)
+                    .foregroundColor(.primary)
+                Text(option.description)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .padding(.vertical, 4)
+    }
+}
+
 struct SettingsView_Previews: PreviewProvider {
     static var previews: some View {
         SettingsView()
+    }
+}
+
+struct QualityPickerView_Previews: PreviewProvider {
+    static var previews: some View {
+        QualityPickerView()
+            .preferredColorScheme(.dark)
     }
 }

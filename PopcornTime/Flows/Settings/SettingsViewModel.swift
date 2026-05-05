@@ -92,13 +92,98 @@ class SettingsViewModel: ObservableObject {
     
     @Published var serverUrl: String = PopcornKit.serverURL()
     var chekServerIsUpTask: Task<(), Never>?
-    
+
     func changeUrl(_ url: String) {
         self.chekServerIsUpTask?.cancel()
         self.chekServerIsUpTask = Task { @MainActor [weak self] in
             self?.serverUrl = await PopcornKit.setUserCustomUrls(newUrl: url)
             self?.chekServerIsUpTask = nil
         }
+    }
+
+    // MARK: - Popcorn server list
+    //
+    // The list-style UI (System Settings → Network → DNS shape: rows
+    // with `+` / `-` controls + a Restore Defaults button) operates on
+    // an in-memory `[String]`. `PopcornKit.serverURL()` /
+    // `setUserCustomUrls(_:)` keep the comma-separated string format
+    // for back-compat with the existing fetch path; we just convert
+    // at the boundary.
+
+    @Published var popcornUrls: [String] = SettingsViewModel.parsePopcornUrls(PopcornKit.serverURL())
+    @Published var newPopcornUrl: String = ""
+
+    private static func parsePopcornUrls(_ joined: String) -> [String] {
+        joined
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func commitPopcornUrls() {
+        let joined = popcornUrls.joined(separator: ",")
+        chekServerIsUpTask?.cancel()
+        chekServerIsUpTask = Task { @MainActor [weak self] in
+            let resolved = await PopcornKit.setUserCustomUrls(newUrl: joined)
+            self?.serverUrl = resolved
+            self?.popcornUrls = SettingsViewModel.parsePopcornUrls(resolved)
+            self?.chekServerIsUpTask = nil
+        }
+    }
+
+    func addPopcornUrl() {
+        let trimmed = newPopcornUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !popcornUrls.contains(trimmed) else { return }
+        popcornUrls.append(trimmed)
+        newPopcornUrl = ""
+        commitPopcornUrls()
+    }
+
+    func removePopcornUrls(at offsets: IndexSet) {
+        popcornUrls.remove(atOffsets: offsets)
+        commitPopcornUrls()
+    }
+
+    func removePopcornUrl(_ url: String) {
+        popcornUrls.removeAll(where: { $0 == url })
+        commitPopcornUrls()
+    }
+
+    func restorePopcornUrlDefaults() {
+        popcornUrls = Popcorn.fallbackMirrors
+        commitPopcornUrls()
+    }
+
+    // MARK: - API endpoint overrides
+    //
+    // Each entry holds the in-flight value of the field while the
+    // user types. Persistence happens on field commit (`onSubmit`)
+    // via `setEndpointURL(_:for:)` — the active service URL is
+    // resolved at first access of `<Service>.base`, so changes take
+    // effect on next app launch (footer copy makes that explicit).
+
+    @Published var endpointURLs: [APIEndpoint: String] = {
+        var dict: [APIEndpoint: String] = [:]
+        for ep in APIEndpoint.allCases {
+            dict[ep] = ep.url
+        }
+        return dict
+    }()
+
+    func setEndpointURL(_ url: String, for endpoint: APIEndpoint) {
+        APIEndpoint.setURL(url, for: endpoint)
+        endpointURLs[endpoint] = endpoint.url
+    }
+
+    func resetAllEndpoints() {
+        APIEndpoint.resetAll()
+        for endpoint in APIEndpoint.allCases {
+            endpointURLs[endpoint] = endpoint.url
+        }
+    }
+
+    var hasAnyEndpointOverride: Bool {
+        APIEndpoint.allCases.contains(where: { $0.isOverridden })
     }
     
     var networkMonitor: NWPathMonitor = {

@@ -6,7 +6,7 @@
 //  Copyright © 2021 PopcornTime. All rights reserved.
 //
 
-import TVServices
+@preconcurrency import TVServices
 import PopcornKit
 import ObjectMapper
 
