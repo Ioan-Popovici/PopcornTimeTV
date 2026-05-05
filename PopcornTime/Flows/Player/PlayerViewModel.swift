@@ -20,6 +20,7 @@ typealias SiriRemoteGestureRecognizer = Any
 import AVKit
 import MediaPlayer
 import SwiftUI
+import Combine
 
 
 enum TransportBarHint: String {
@@ -38,22 +39,42 @@ class PlayerViewModel: NSObject, ObservableObject {
     private var nowPlaying: NowPlayingController
     var audioController: PlayerAudioModel
     var subtitleController: PlayerSubtitleModel
-    
+
     private(set) var streamer: PTTorrentStreamer
-    
+
     private var idleWorkItem: DispatchWorkItem?
     internal var workItem: DispatchWorkItem?
     nonisolated(unsafe) internal var torrentStatusChangeObserver: AnyObject?
-    
+
     internal var startPosition: Float = 0.0
     var resumePlayback = false
     @Published var resumePlaybackAlert = false
-    
+
     @Published var isLoading = true
     @Published var isPlaying = false
     @Published var showControls = false
     @Published var showInfo = false
-    
+
+    /// Health monitor passed in from the preload phase — continues to
+    /// observe `PTTorrentStatus` while the user is watching, so a swarm
+    /// that collapses 5 minutes in still surfaces a swap prompt. `nil`
+    /// when the player is launched outside the smart-playback flow
+    /// (downloads, external magnets) and no monitoring is wanted.
+    let healthMonitor: PlaybackHealthMonitor?
+
+    /// Forwarded `currentIssue` from the monitor — bound to the in-player
+    /// toast view. SwiftUI doesn't republish nested `ObservableObject`
+    /// changes through `@EnvironmentObject`, so we mirror it onto our own
+    /// `@Published` instead.
+    @Published var healthIssue: PlaybackHealthMonitor.HealthIssue?
+    private var healthIssueSubscription: AnyCancellable?
+
+    /// Caller hook for the in-player toast's "Switch" action — tear down
+    /// the current player and ask the parent to pick a replacement
+    /// torrent. The `Float` is the 0–1 resume position so the new source
+    /// can pick up where the user left off.
+    var onRequestSwitchSource: ((Float) -> Void)?
+
     var dismiss: DismissAction?
     
     struct Progress {
@@ -86,9 +107,17 @@ class PlayerViewModel: NSObject, ObservableObject {
     }
     @Published var progress = Progress()
     
-    init(media: Media, fromUrl: URL, localUrl: URL, directory: URL, streamer: PTTorrentStreamer) {
+    init(
+        media: Media,
+        fromUrl: URL,
+        localUrl: URL,
+        directory: URL,
+        streamer: PTTorrentStreamer,
+        healthMonitor: PlaybackHealthMonitor? = nil
+    ) {
         self.media = media
         self.streamer = streamer
+        self.healthMonitor = healthMonitor
         #if os(tvOS) || os(iOS)
         mediaplayer.audio?.passthrough = true
         #endif
@@ -100,22 +129,48 @@ class PlayerViewModel: NSObject, ObservableObject {
         self.nowPlaying = NowPlayingController(mediaplayer: mediaplayer, media: media, localPathToMedia: localUrl)
         self.audioController = PlayerAudioModel(mediaplayer: mediaplayer)
         self.subtitleController = PlayerSubtitleModel(media: media, mediaplayer: mediaplayer, directory: directory, localPathToMedia: localUrl)
-        
+
         super.init()
         mediaplayer.delegate = self
         self.nowPlaying.onPlayPause = { [weak self] in
             self?.playandPause()
         }
-        
+
+        if let healthMonitor {
+            healthIssueSubscription = healthMonitor.$currentIssue
+                .receive(on: RunLoop.main)
+                .assign(to: \.healthIssue, on: self)
+        }
+
         torrentStatusChangeObserver = NotificationCenter.default.addObserver(forName: .PTTorrentStatusDidChange, object: streamer, queue: nil) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard !self.resumePlaybackAlert else { // will trigger UI invalidation - and screen becomes unresponsive
                     return
                 }
-                self.progress.bufferProgress = self.streamer.torrentStatus.totalProgress
+                let status = self.streamer.torrentStatus
+                self.progress.bufferProgress = status.totalProgress
+                self.healthMonitor?.observe(status: status, phase: .playback)
             }
         }
+    }
+
+    /// Toast "Switch" tapped mid-playback. Capture the current position,
+    /// stop VLC + the streamer cleanly, and ask the parent to swap. The
+    /// caller is responsible for tearing the player view down — we
+    /// don't `dismiss?()` here because the parent will reuse the
+    /// fullScreenContent to host the next source.
+    func requestSwitchSource() {
+        healthMonitor?.dismissIssue()
+        let resumeAt = mediaplayer.isSeekable ? mediaplayer.position : 0
+        mediaplayer.delegate = nil
+        mediaplayer.stop()
+        if let observer = torrentStatusChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            torrentStatusChangeObserver = nil
+        }
+        streamer.cancelStreamingAndDeleteData(false)
+        onRequestSwitchSource?(resumeAt)
     }
     
     deinit {
@@ -126,8 +181,8 @@ class PlayerViewModel: NSObject, ObservableObject {
     
     func playOnAppear() {
         guard mediaplayer.state == .stopped || mediaplayer.state == .opening else { return }
-        
-        if startPosition > 0.0 {
+
+        if startPosition > 0.0 && !resumePlayback {
             isLoading = false
             resumePlaybackAlert = true
         } else {
@@ -444,11 +499,14 @@ extension PlayerViewModel: @preconcurrency VLCMediaPlayerDelegate {
         case .paused:
             saveMediaProgress(status: .paused)
             isPlaying = false
+            healthMonitor?.vlcBufferingDidEnd()
         case .playing:
             isPlaying = true
             saveMediaProgress(status: .watching)
+            healthMonitor?.vlcBufferingDidEnd()
         case .buffering:
             progress.isBuffering = true
+            healthMonitor?.vlcBufferingDidStart()
         case .opening:
             break
         case .esAdded:

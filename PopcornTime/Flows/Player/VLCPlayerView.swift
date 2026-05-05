@@ -48,7 +48,16 @@ struct VLCPlayerView_MAC: NSViewRepresentable {
     
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-//        fixFirstTimeInvalidSize(view: view)
+        // Re-enabled. Workaround for VLCKit bug 25264: on first
+        // launch the drawable's size is reported as 0×0 to libvlc, so
+        // the video output renders to a black surface even though
+        // VLC is decoding pieces and requesting bytes from
+        // `GCDWebServer`. Bumping the window height by +1 / −1 px
+        // forces VLC to re-query the drawable size and bind the
+        // video layer correctly. Was commented out at some point and
+        // is the most likely cause of the "black screen but pieces
+        // are downloading" symptom currently observed.
+        fixFirstTimeInvalidSize(view: view)
         return view
     }
     

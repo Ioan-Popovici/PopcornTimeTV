@@ -46,11 +46,25 @@ FOUNDATION_EXPORT NSNotificationName const PTTorrentStatusDidChangeNotification;
  A class that streams magnet links or `.torrent` files to a `GCDWebServer`.
  */
 @interface PTTorrentStreamer : NSObject
-    
+
 /**
  The directory to which all torrents are saved. Defaults to `NSTemporaryDirectory`. Will return `nil` if there is an error creating the directory.
  */
 + (NSString * _Nullable)downloadDirectory;
+
+/**
+ Override the auto-computed `MIN_PIECES` head pre-buffer floor used by
+ `fastForwardTorrentForRange:` and the initial piece-priority window.
+ Auto-computation is `0.5 %` of file size clamped to 4–6 pieces.
+
+ Pass any positive value to force exactly that many head pieces; pass
+ `0` to restore the auto-computation. Plumbed from `Session.buffering
+ Strategy` so the user-selectable Fast / Balanced / Smooth setting
+ actually changes the byte-level pre-buffer, not just the Swift-side
+ adaptive gate. Class-level — set before each play.
+ */
++ (void)setMinPiecesOverride:(NSInteger)value;
++ (NSInteger)minPiecesOverride;
 
 /**
  Begins streaming of a torrent.

@@ -13,13 +13,13 @@ struct PlayerView: View {
     @EnvironmentObject var viewModel: PlayerViewModel
     @Environment(\.dismiss) var dismiss
     var upNextView: UpNextView?
-    
+
     #if os(tvOS)
     @Namespace private var namespace
     @Environment(\.resetFocus) var resetFocus
     @State var playerHasFocus = true // workaround to make infoView to have focus on appear
     #endif
-    
+
     var body: some View {
         ZStack {
             VLCPlayerView(mediaplayer: viewModel.mediaplayer)
@@ -32,6 +32,16 @@ struct PlayerView: View {
             showInfoView
             upNextViewContainer
         }
+        // No mid-playback banner. The earlier `PlaybackBanner` was
+        // firing on transient VLC `.buffering` events during cold
+        // start / seeking — situations that resolve themselves before
+        // the user notices, but trip the monitor's 10 s threshold.
+        // The result was "Playback unstable" appearing while playback
+        // was, in fact, stable. The inline preload prompt is the
+        // single UI we use for issue surfacing + source-swap; if a
+        // genuine mid-playback stall happens, the user can dismiss
+        // the player and re-pick (or long-press Play to open the
+        // picker pre-launch).
         .onAppear {
             viewModel.playOnAppear()
             viewModel.dismiss = dismiss // this screen can dismissed from viewModel

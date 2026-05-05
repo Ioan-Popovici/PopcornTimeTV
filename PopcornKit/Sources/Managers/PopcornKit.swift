@@ -117,7 +117,15 @@ public func downloadOpenSubtitleFile(_ subtitle: Subtitle, downloadDirectory dir
 }
 
 public func serverURL() -> String {
-    return Session.popcornBaseUrls ?? ""
+    // Fall back to the hardcoded fallback mirror list when the user
+    // hasn't entered anything and DHT discovery hasn't yet populated
+    // `Session.popcornBaseUrls`. Otherwise the Settings field reads
+    // as empty even though the app is in fact talking to one of these
+    // mirrors via `Session.lastPopcornBaseUrl ?? Popcorn.base`.
+    if let urls = Session.popcornBaseUrls, !urls.isEmpty {
+        return urls
+    }
+    return Popcorn.fallbackMirrors.joined(separator: ",")
 }
 
 public func setUserCustomUrls(newUrl: String?) async -> String {

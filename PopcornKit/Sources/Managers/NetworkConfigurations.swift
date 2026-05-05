@@ -3,7 +3,9 @@ import Foundation
 public struct Trakt {
     static let apiKey = "d3b0811a35719a67187cba2476335b2144d31e5840d02f687fbf84e7eaadc811"
     static let apiSecret = "f047aa37b81c87a990e210559a797fd4af3b94c16fb6d22b62aa501ca48ea0a4"
-    static let base = "https://api.trakt.tv"
+    // Resolved once at first access (Swift `static let` semantics).
+    // Override via Settings → API Endpoints; takes effect after restart.
+    static let base = APIEndpoint.trakt.url
     static let shows = "/shows"
     static let movies = "/movies"
     static let people = "/people"
@@ -64,7 +66,7 @@ public struct Trakt {
 
 public struct TMDB {
     static let apiKey = "ac92176abc89a80e6f5df9510e326601"
-    static let base = "https://api.themoviedb.org/3"
+    static let base = APIEndpoint.tmdb.url
     static let tv = "/tv"
     static let person = "/person"
     static let images = "/images"
@@ -82,7 +84,7 @@ public struct TMDB {
 
 public struct Fanart {
     static let apiKey = "bd2753f04538b01479e39e695308b921"
-    static let base = "http://webservice.fanart.tv/v3"
+    static let base = APIEndpoint.fanart.url
     static let tv = "/tv"
     static let movies = "/movies"
     
@@ -90,7 +92,7 @@ public struct Fanart {
 }
 
 public struct OpenSubtitles {
-    static let base = "https://api.opensubtitles.com/api/v1/"
+    static let base = APIEndpoint.openSubtitles.url
     static let userAgent = "Popcorn v1"
     static let apiKey = "ljnc55mUqXwU9OZcxC4Hf6ZqJ1WPVMIn"
     static let login = "login"
@@ -132,15 +134,15 @@ public struct OpenSubtitles {
 
 // cloudflare cached version of above
 public struct OMDb {
-    static let base = "https://reviews.randomrush.work"
+    static let base = APIEndpoint.omdb.url
     static let info = "i"
-    
+
     static let defaultParameters: [String: String] = [:]
 }
 
 // cloudflare cached version of above
 public struct DHT {
-    static let base = "https://popcorn-dht.8mdm9hjd2h.workers.dev"
+    static let base = APIEndpoint.dht.url
 
     static let defaultParameters: [String: String] = [:]
 }
@@ -152,11 +154,21 @@ public struct DHT {
 /// As of 2026-05 yts.mx serves the website (HTML), not the JSON API.
 /// `yts.lt` and `yts.am` carry the API; the client tries them in order.
 public struct YTS {
-    static let hosts: [String] = [
-        "https://yts.lt/api/v2",
-        "https://yts.am/api/v2",
-        "https://yts.mx/api/v2",
-    ]
+    /// Override via Settings → API Endpoints prepends a custom host
+    /// to the fallback list, so a tester's proxy is tried first while
+    /// the canonical mirrors stay as fallbacks.
+    static let hosts: [String] = {
+        let defaults = [
+            "https://yts.lt/api/v2",
+            "https://yts.am/api/v2",
+            "https://yts.mx/api/v2",
+        ]
+        let override = APIEndpoint.yts.url
+        if APIEndpoint.yts.isOverridden, !defaults.contains(override) {
+            return [override] + defaults
+        }
+        return defaults
+    }()
     static let base = hosts[0] // legacy single-host accessor
     static let listMovies = "/list_movies.json"
     static let movieDetails = "/movie_details.json"
@@ -191,7 +203,7 @@ public struct Popcorn {
     /// `{"message":"Internal Server Error"}`, so without this fallback the
     /// app would query a single mirror. These four hosts are the same set
     /// the DHT worker advertised when it was healthy.
-    static let fallbackMirrors: [String] = [
+    public static let fallbackMirrors: [String] = [
         "https://uxert.link",
         "https://fusme.link",
         "https://jfper.link",

@@ -68,6 +68,89 @@ All notable changes are recorded here. Dates are ISO-8601.
   `MovieDetailsView` and `ShowDetailsView` action rows are wrapped in
   `GlassEffectContainer` so the buttons morph as a group.
 - Universal `arm64 + x86_64` macOS `.app` artifact released on tag.
+- **Auto-quality rename + Selectable mode.** `Best/Better/Good/Auto`
+  replaced with `Optimal/Highest/Normal/Selectable`. `Selectable` opens
+  the torrent picker every play instead of auto-resolving — useful when
+  the auto-pick keeps landing on a stale source.
+- **Buffering Strategy setting** (Settings → Playback → `Fast` /
+  `Balanced` / `Smooth`). Plumbed through to libtorrent via a new
+  `+[PTTorrentStreamer setMinPiecesOverride:]` class method, so the
+  byte-level pre-buffer floor actually moves with the user choice
+  (Fast ≈ 3 head pieces, Balanced ≈ 4, Smooth ≈ 8) instead of being
+  hardcoded at 4–6. Pairs with the Swift adaptive gate (Fast bypasses
+  the `targetSeconds` headroom check; Balanced waits 4 s; Smooth 8 s).
+- **Audio Language picker** in Settings. Drives both torrent selection
+  (prefers releases that include the requested track) and a one-shot
+  VLC track switch on play, so a Russian-language preference lands on
+  the dual-audio source *and* swaps to the right track without manual
+  intervention. Picker also infers multi-track from Russian-scene
+  release markers (`Дубляж`, `LostFilm`, `MVO`, etc.) when the torrent
+  metadata doesn't list audio tracks explicitly.
+- **Source-quality torrent ranking + collapsed picker.** Torrents are
+  bucketed by quality (`1080p`, `720p`, `480p`, `3D`) and the best
+  source per bucket leads the picker; remaining sources collapse under
+  a "Show all sources…" disclosure so the picker doesn't drown in
+  dozens of mirror copies. Ranking uses seed count + provider trust +
+  release-tag hints (e.g. `WEB-DL` over `HDTS`).
+- **Per-platform Settings UI.** Each platform body
+  (`iOSBody`/`tvOSBody`/`macOSBody`) renders shared `@ViewBuilder`
+  rows in its native idiom — `insetGrouped` list (iOS), Apple-Music-
+  style SF-Symbol button rows with detail screens (tvOS), grouped
+  `Form` with inline `Picker(.menu)` and dynamic footer copy (macOS).
+- **Picker-based Switch source.** Long-press Play (or "Switch source"
+  during preload) re-opens the torrent picker pre-launch instead of
+  silently jumping to the next-best torrent — the user picks the
+  replacement.
+- **Preload screen carries through first-frame handoff.** The blurred-
+  backdrop + spinner stays mounted on top of the freshly-mounted
+  `PlayerView` until VLC actually renders the first frame
+  (`mediaPlayerTimeChanged` flips `isLoading` false), eliminating the
+  1–3 s black gap on Fast strategy where libtorrent has handed VLC
+  the bytes but VLC is still parsing the container. Implemented via
+  `PlayingWithPreloadCover` — a wrapper that holds the player model
+  as `@ObservedObject` so SwiftUI re-renders on the flip.
+- **`PlaybackHealthMonitor`** surfaces stall reasons during pre-buffer
+  (`slowStart`, `peerCollapse`, `sustainedLowSpeed`, `bufferStall`)
+  and feeds the inline "Switch source" prompt copy. Mid-playback the
+  monitor still runs but doesn't surface (one UI). 30-day
+  `PlaybackFailureRegistry` (UserDefaults-backed) blacklists
+  consistently-failing magnets so auto-pick avoids them.
+- **Adaptive pre-buffer with friendly status text.** `PrebufferPolicy`
+  encodes `targetSeconds` / `maxWaitSeconds` per strategy, evaluated
+  against bytes-buffered + media duration. Status line on the preload
+  screen shifts from "Connecting to source…" → "Downloading…" once
+  bytes are flowing.
+- **Early `GCDWebServer` start.** Server now starts in
+  `metadataReceivedAlert` (the moment libtorrent has the torrent
+  metadata) instead of waiting for `allRequiredPiecesDownloaded`.
+  The HTTP `GET` handler queues VLC's raw `GCDWebServerRequest` and
+  builds the file response only once `pieceFinishedAlert` confirms
+  the requested byte range is on disk — `GCDWebServerFileResponse
+  initWithFile:byteRange:` aborts (rather than nil-returning) when
+  the file is missing, which is why we queue the request and
+  construct the response lazily.
+- **API Endpoints settings**
+  (`PopcornKit/Sources/Managers/APIEndpoints.swift`). UserDefaults-
+  backed override for 7 public services (Trakt, TMDB, Fanart,
+  OpenSubtitles, OMDb, YTS, DHT). Edit each URL in Settings → API
+  Endpoints; resolved at first access of `<Service>.base`, so
+  changes apply on next launch. "Reset all to defaults" clears every
+  override.
+- **Popcorn API server list UI.** Replaces the single comma-separated
+  TextField with a System-Settings-style list: rows with inline
+  `−` (or swipe-to-delete on iOS), an "add server" row at the bottom,
+  and a "Restore Defaults" action. Persistence flows through
+  `PopcornKit.setUserCustomUrls(_:)` so the live mirror-checker still
+  validates the new list.
+- **`Streaming details` Settings toggle.** When off the preload screen
+  drops the bar + stats panel and shows just a centered indeterminate
+  spinner — quieter loading UI for users who don't want the technical
+  readout.
+- **Recently-played magnet LRU + `TorrentSessionWarmer`.** Records
+  successful `readyToPlay` magnets per-user so the next launch can
+  warm those torrent sessions ahead of time. Currently disabled at
+  the call sites (warmup → play handoff still has piece-priority
+  contention bugs); kept compiled for follow-up.
 
 ### Changed
 - Deployment targets bumped to **tvOS 26 · iOS 26 · macOS 26**.
@@ -101,6 +184,29 @@ All notable changes are recorded here. Dates are ISO-8601.
   `Settings.trackers.forced` byte-for-byte (was missing `tracker.bittor.pw`,
   `tr4ck3r.duckdns.org`, `tracker.therarbg.to`; had wrong port on
   `tracker.openbittorrent.com`).
+- **libtorrent session tuning.** Fixed DHT bootstrap typo + added two
+  more bootstrap nodes; added the `ut_pex` plugin; set
+  `peer_connect_timeout: 5` and `handshake_timeout: 10`;
+  `announce_to_all_trackers/tiers: true` so all trackers hit in
+  parallel rather than serially. UPnP / NAT-PMP and connection
+  encryption stay off — both correlated with `auto_manage_torrents
+  → is_inactive` SEGVs.
+- **`MIN_PIECES` now driven by user choice.** Default clamp is still
+  4–6 (auto-computed from 0.5 % of file size); `+setMinPiecesOverride:`
+  lets `PreloadTorrentViewModel.playTorrent()` push the
+  `Buffering Strategy` value (3 / 4 / 8) before each play.
+- **`OpenSubtitlesHash.hashFor` rewritten on the modern throwing
+  `FileHandle` API.** `guard let` instead of force-unwrap; per-call
+  `do/catch`; validates each read returned a full chunk; uses
+  `Data.withUnsafeBytes { … bindMemory(to: UInt64.self) }` instead of
+  `NSData.bytes.assumingMemoryBound`. Returns an empty hash on any
+  I/O error so subtitle search falls back to imdb / episode matching.
+- **`PopcornKit.serverURL()`** falls back to
+  `Popcorn.fallbackMirrors.joined(",")` when `Session.popcornBaseUrls`
+  is empty, so the Settings field reflects what the app is actually
+  using rather than reading blank.
+- `Popcorn.fallbackMirrors` made `public` so the Settings UI can
+  pull the bundled defaults for the "Restore Defaults" action.
 
 ### Fixed
 - Crash on torrent quality select (`EXC_BREAKPOINT` in
@@ -115,6 +221,47 @@ All notable changes are recorded here. Dates are ISO-8601.
   background dispatch queue.
 - iOS Info.plist `armv7` capability replaced with `arm64`.
 - All actionable Swift 6 strict-concurrency warnings cleared.
+- **`SIGTRAP` in `OpenSubtitlesHash.hashFor`** when early-server-start
+  handed `PlayerSubtitleModel` a sparse / not-yet-created file. Force
+  unwrap of `FileHandle(forReadingAtPath: path)!` trapped on missing
+  file; the rewrite (see Changed) tolerates both missing and short
+  files.
+- **`100 % buffered, no playback` after preload-as-cover handoff.**
+  The `.preload → .play` state transition was re-mounting
+  `PreloadTorrentView`, whose `.onAppear` fired `playTorrent()` a
+  second time and created a *new* `PTTorrentStreamer` that orphaned
+  the already-bound `playerModel`. `playTorrent()` is now idempotent
+  (`guard playerModel == nil else { return }`).
+- **Preload cover never dismissed despite VLC playing audio.** The
+  `playerModel.isLoading` check inside the parent switch wasn't
+  observed (captured enum payload). Extracted into
+  `PlayingWithPreloadCover` which holds `playerModel` as
+  `@ObservedObject` so SwiftUI re-renders on the flip.
+- **VLC black-screen on first play with `drawable size = 0×0`**
+  (VLCKit issue 25264). `fixFirstTimeInvalidSize(view:)` workaround
+  re-enabled in `VLCPlayerView`.
+- **`SEGV` in `auto_manage_torrents → is_inactive`** when UPnP +
+  encryption were enabled together. Both reverted off.
+- **`std::sort` crash in `request_time_critical_pieces`** caused by
+  aggressive `connection_speed=100` + `max_failcount=1` libtorrent
+  tuning (high peer churn). Reverted to libtorrent defaults.
+- **`SIGTRAP` in `TorrentSessionWarmer.selectFileToStream`** —
+  `@MainActor` closure was invoked from libtorrent's background
+  alerts queue. Closure now declared `@Sendable`.
+- **"Playback unstable" surfacing during stable playback.** The
+  `peerCollapse` health signal was firing on momentary peer dips
+  *after* playback started; now gated to `phase == .preBuffer` only.
+- **"Source is slow to start" surfacing after playback began.** A
+  pre-buffer `slowStart` issue carried over into `PlayerView`'s
+  observation; `PlaybackHealthMonitor.resetForPlayback()` clears
+  stale issues on handoff.
+- **Clear Cache hang** caused by walking all of `NSTemporaryDirectory`
+  recursively. Scoped to `<temp>/Downloads/` and stripped the
+  per-folder size accounting that triggered the walk.
+- **Subtitle preferred-language warning false-positives.** `match` is
+  now compared case-insensitively and surfaces `missingPreferredSubtitle
+  Language` only when no candidates exist for the configured language
+  *and* fallback locales.
 
 ### Removed
 - **Build-time dependency on `alextud/PopcornTorrent`'s GitHub repo.**
