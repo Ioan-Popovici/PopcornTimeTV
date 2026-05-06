@@ -27,11 +27,10 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
     
     struct AlertType: Identifiable {
         enum Choice {
-            case noTorrentsFound, streamOnCellular, audioLanguageMissing
+            case noTorrentsFound, streamOnCellular
         }
 
         var id: Choice
-        var languageDisplay: String?
     }
 
 
@@ -108,18 +107,6 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
                         Session.streamOnCellular = true
                       },
                       secondaryButton: .cancel())
-            case .audioLanguageMissing:
-                let lang = alert.languageDisplay ?? "your preferred language"
-                return Alert(
-                    title: Text("No \(lang) audio available"),
-                    message: Text("No torrents in \(lang) were found for this title. Continue with another language?"),
-                    primaryButton: .default(Text("Continue")) {
-                        fallbackToAnyLanguage = true
-                        // Re-run the selection flow against the full list.
-                        startPlayback()
-                    },
-                    secondaryButton: .cancel()
-                )
             }
 
         }
