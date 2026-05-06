@@ -3,6 +3,7 @@
 #import "PTTorrentStreamer.h"
 #import <Foundation/Foundation.h>
 #import <string>
+#import <sys/stat.h>
 #import <libtorrent/bencode.hpp>
 #import "../Security/CocoaSecurity.h"
 #import "../Resources/NSString+Localization.h"
@@ -14,6 +15,15 @@
 
 #define PIECE_DEADLINE_MILLIS 100
 
+// Smallest contiguous run of pieces VLC needs to start decoding after a
+// seek. Initial pre-buffer is governed by the user's Buffering Strategy
+// (Fast / Balanced / Smooth → 3-8 pieces), but a *seek* doesn't need
+// the same headroom: VLC already has its decoder warm, the local HTTP
+// connection is reused, and the rest of the run-in streams in via
+// `prioritizeNextPieces:` after the initial response goes out. Lower
+// floor here = noticeably snappier seek-to-first-frame.
+#define SEEK_MIN_PIECES 2
+
 NSNotificationName const PTTorrentStatusDidChangeNotification = @"com.popcorntimetv.popcorntorrent.status.change";
 
 
@@ -24,6 +34,11 @@ using namespace libtorrent;
 // `Session.bufferingStrategy` (Fast / Balanced / Smooth).
 static NSInteger sMinPiecesOverride = 0;
 
+// User-chosen streaming cache root, set via `Session.applyStorageOverrides()`
+// after resolving a security-scoped bookmark in the sandboxed macOS build.
+// `nil` means use the default (`NSTemporaryDirectory()/Downloads`).
+static NSString *sDownloadDirectoryOverride = nil;
+
 @implementation PTTorrentStreamer
 
 + (void)setMinPiecesOverride:(NSInteger)value {
@@ -32,6 +47,14 @@ static NSInteger sMinPiecesOverride = 0;
 
 + (NSInteger)minPiecesOverride {
     return sMinPiecesOverride;
+}
+
++ (void)setDownloadDirectoryOverride:(NSString *)path {
+    sDownloadDirectoryOverride = [path copy];
+}
+
++ (NSString *)downloadDirectoryOverride {
+    return sDownloadDirectoryOverride;
 }
 
 - (instancetype)init {
@@ -54,8 +77,9 @@ static NSInteger sMinPiecesOverride = 0;
 
 
 + (NSString *)downloadDirectory {
-    NSString *downloadDirectory = [NSTemporaryDirectory() stringByAppendingPathComponent:@"Downloads"];
-    
+    NSString *downloadDirectory = sDownloadDirectoryOverride
+        ?: [NSTemporaryDirectory() stringByAppendingPathComponent:@"Downloads"];
+
     if (![[NSFileManager defaultManager] fileExistsAtPath:downloadDirectory]) {
         NSError *error;
         [[NSFileManager defaultManager] createDirectoryAtPath:downloadDirectory
@@ -64,7 +88,7 @@ static NSInteger sMinPiecesOverride = 0;
                                                         error:&error];
         if (error) return nil;
     }
-    
+
     return downloadDirectory;
 }
 
@@ -73,12 +97,13 @@ static NSInteger sMinPiecesOverride = 0;
     firstPiece = libtorrent::piece_index_t(-1);
     endPiece = libtorrent::piece_index_t(0);
     lastFilePiece = libtorrent::piece_index_t(0);
-    
+    _initialBufferingComplete = NO;
+
     _requestedRangeInfo = [[NSMutableDictionary alloc] init];
-    
+
     _status = torrent_status();
     if(self.mediaServer == nil)self.mediaServer = [[GCDWebServer alloc] init];
-    
+
 }
 
 - (void)startStreamingFromMultiTorrentFileOrMagnetLink:(NSString *)filePathOrMagnetLink
@@ -264,14 +289,18 @@ static NSInteger sMinPiecesOverride = 0;
     int length = range.length > INT_MAX ? INT_MAX : int(range.length);
     peer_request request = ti->map_file(index, range.location, length);
 
-    //set first and last pieces — wait for MIN_PIECES from start of
-    //VLC's requested range so the GCDWebServerFileResponse's sequential
-    //read never falls into a sparse hole. MIN_PIECES is now driven by
-    //the user-selected Buffering Strategy (Fast / Balanced / Smooth)
-    //via `+[PTTorrentStreamer setMinPiecesOverride:]` — see Session.swift.
+    //set first and last pieces — wait for MIN_PIECES (the user's
+    //Buffering Strategy choice) from the start of VLC's requested
+    //range so VLC has enough contiguous bytes to start decoding.
+    //An earlier optimisation lowered this to a 2-piece floor for
+    //"snappier seek-to-first-frame", but on slow swarms VLC sometimes
+    //hit the response, read 2 piece's worth, then ran into the sparse
+    //hole and stalled with the spinner up. Reverting to MIN_PIECES is
+    //slower-to-start but consistently makes progress.
+    auto seekRunIn = MIN_PIECES;
     auto startPiece = request.piece;
     auto finalPiece = startPiece;
-    for (int i = 0; i < MIN_PIECES - 1; i++) {
+    for (int i = 0; i < seekRunIn - 1; i++) {
         finalPiece++;
         if (finalPiece > lastFilePiece) {
             finalPiece = lastFilePiece;
@@ -279,27 +308,60 @@ static NSInteger sMinPiecesOverride = 0;
         }
     }
 
-    //set global variables
-    firstPiece = startPiece;
-    endPiece = finalPiece;
-    NSLog(@"fast forwarding to new start piece: %d", (int)startPiece);
-
     //if we already have the requested part of the movie return immediately
     for(auto j = startPiece; j <= finalPiece; j++){
         if (!torrent.have_piece(j)) {
             break;
         } else if (j==finalPiece) {
+            // Pieces ready — also keep `firstPiece`/`endPiece` updated
+            // so `pieceFinishedAlert` fires the queued-completion path
+            // for any in-flight request matching this range.
+            firstPiece = startPiece;
+            endPiece = finalPiece;
+            NSLog(@"fast forwarding to new start piece: %d", (int)startPiece);
             return YES;
         }
     }
 
-    NSLog(@"new start piece missing, downloading...");
-    //take control of the array from all of the other threads that might be accessing it
+    // Range is missing pieces. Don't thrash the priority window: if the
+    // request falls INSIDE the current sliding prefetch window
+    // (`required_pieces`), libtorrent is already targeting these pieces
+    // — just queue the request and let the existing prefetch finish.
+    // Without this guard, every byte-range from VLC (header reads at
+    // offset 0, moov atom reads at end, then resume seek) clears
+    // libtorrent's priorities and re-sets MIN_PIECES, so the seek
+    // target never converges. Symptom: "3% on disk, 3.5 MB/s, nothing
+    // playing" because libtorrent keeps starting fresh prefetch cycles
+    // for whichever offset VLC last asked for.
+    BOOL alreadyTargetingThisRange = NO;
     mtx.lock();
-    required_pieces.clear(); //clear all the pieces we wanted to download previously
+    if (!required_pieces.empty()) {
+        auto windowStart = required_pieces.front();
+        auto windowEnd = required_pieces.back();
+        if (startPiece >= windowStart && startPiece <= windowEnd) {
+            alreadyTargetingThisRange = YES;
+        }
+    }
     mtx.unlock();
 
-    //start to download the requested part of the movie
+    if (alreadyTargetingThisRange) {
+        NSLog(@"new start piece %d already in prefetch window — leaving priorities alone", (int)startPiece);
+        firstPiece = startPiece;
+        endPiece = finalPiece;
+        return NO;
+    }
+
+    //set global variables — true seek, take over the priority window
+    firstPiece = startPiece;
+    endPiece = finalPiece;
+    NSLog(@"fast forwarding to new start piece: %d", (int)startPiece);
+
+    NSLog(@"new start piece missing, downloading...");
+    // `prioritizeNextPieces` does the demote-and-clear of the prior
+    // window atomically under the mutex — calling it directly is
+    // equivalent to the old "lock + clear + call" sequence and avoids
+    // a momentary empty `required_pieces` window that other threads
+    // could observe.
     [self prioritizeNextPieces:torrent];
 
     return NO;
@@ -325,7 +387,8 @@ static NSInteger sMinPiecesOverride = 0;
     
     firstPiece = libtorrent::piece_index_t(-1);
     endPiece = libtorrent::piece_index_t(0);
-    
+    _initialBufferingComplete = NO;
+
     self.streaming = NO;
     _torrentStatus = (PTTorrentStatus){0, 0, 0, 0, 0, 0};
     _isFinished = false;
@@ -348,7 +411,7 @@ static NSInteger sMinPiecesOverride = 0;
 
 - (void)prioritizeNextPieces:(torrent_handle)th {
     piece_index_t next_required_piece = piece_index_t(0);
-    
+
     if (firstPiece != piece_index_t(-1)) {
         next_required_piece = firstPiece;
     } else if (required_pieces.size() > 0) {
@@ -356,18 +419,32 @@ static NSInteger sMinPiecesOverride = 0;
         next_required_piece = required_pieces[next_piece - 1];
         next_required_piece++;
     }
-    
+
     firstPiece = libtorrent::piece_index_t(-1);
-    
+
     mtx.lock();
-    
+
+    // Selective demote: only knock the *previously top-prioritised*
+    // pieces back down to low_priority — leave every other piece
+    // alone. The earlier code blasted ALL piece priorities to
+    // low_priority and cleared every deadline on each call, which
+    // killed in-flight prefetch from prior seeks (peers stop sending
+    // a piece the moment its priority drops + deadline clears, so
+    // pieces that were 80 % done from a previous seek-back never
+    // finish on a slow swarm). Already-downloaded pieces' priority
+    // is moot; in-progress demoted pieces continue at low_priority
+    // and finish naturally when bandwidth allows. Downstream effect:
+    // the movie genuinely accumulates on disk over the playback
+    // session, so seek-back to a watched region is instant instead
+    // of triggering a fresh fetch.
+    for (auto p : required_pieces) {
+        if (!th.have_piece(p)) {
+            th.piece_priority(p, low_priority);
+            th.reset_piece_deadline(p);
+        }
+    }
     required_pieces.clear();
-    
-    auto piece_priorities = th.get_piece_priorities();
-    th.clear_piece_deadlines();//clear all deadlines on all pieces before we set new ones
-    std::fill(piece_priorities.begin(), piece_priorities.end(), low_priority);
-    th.prioritize_pieces(piece_priorities);
-    
+
     for (int i = 0; i < MIN_PIECES; i++) {
         if (next_required_piece <= lastFilePiece) {
             th.piece_priority(next_required_piece, top_priority);
@@ -402,11 +479,39 @@ static NSInteger sMinPiecesOverride = 0;
 /// we never want to invoke this from a code path where pieces
 /// might still be downloading.
 - (GCDWebServerResponse *)makeFileResponseForRequest:(GCDWebServerRequest *)request fileURL:(NSURL *)fileURL {
+    // Pre-flight lstat: GCDWebServerFileResponse's
+    // `initWithFile:byteRange:` calls `abort()` (via GWS_DNOT_REACHED)
+    // in DEBUG builds when lstat fails or the path isn't a regular
+    // file. Two known windows produce that:
+    //   1. Early-server-start race — `fastForwardTorrentForRange:`
+    //      returns YES based on piece readiness, but libtorrent hasn't
+    //      yet materialised the file on disk (it allocates lazily on
+    //      first piece write).
+    //   2. Sandboxed macOS — a user-chosen save path can lose its
+    //      security-scoped access between checks.
+    // Either way, returning a 503 lets VLC back off and retry instead
+    // of crashing the whole process.
+    NSString *path = fileURL.relativePath;
+    struct ::stat info;
+    int statResult = ::lstat([path fileSystemRepresentation], &info);
+    if (statResult != 0 || !S_ISREG(info.st_mode)) {
+        // Log what tripped the guard so we can tell missing-file races
+        // apart from non-regular-file mishaps when debugging seek
+        // crashes. Range printed because seek requests are the typical
+        // trigger.
+        NSLog(@"[PTTorrentStreamer] guard hit: lstat=%d errno=%d mode=0%o path=%@ range=[%lu,%lu]",
+              statResult, errno, info.st_mode,
+              path,
+              (unsigned long)request.byteRange.location,
+              (unsigned long)request.byteRange.length);
+        return [GCDWebServerErrorResponse responseWithStatusCode:503];
+    }
+
     GCDWebServerFileResponse *response;
     if (request.hasByteRange) {
-        response = [[GCDWebServerFileResponse alloc] initWithFile:fileURL.relativePath byteRange:request.byteRange];
+        response = [[GCDWebServerFileResponse alloc] initWithFile:path byteRange:request.byteRange];
     } else {
-        response = [[GCDWebServerFileResponse alloc] initWithFile:fileURL.relativePath];
+        response = [[GCDWebServerFileResponse alloc] initWithFile:path];
     }
     if (response == nil) {
         GCDWebServerErrorResponse *errResponse = [GCDWebServerErrorResponse responseWithStatusCode:416];
@@ -443,9 +548,15 @@ static NSInteger sMinPiecesOverride = 0;
         // the response in `pieceFinishedAlert` once the file +
         // required pieces are ready.
         if ([weakSelf fastForwardTorrentForRange:request.byteRange]) {
+            NSLog(@"[PTTorrentStreamer] serving request range=[%lu,%lu] (pieces ready)",
+                  (unsigned long)request.byteRange.location,
+                  (unsigned long)request.byteRange.length);
             GCDWebServerResponse *response = [weakSelf makeFileResponseForRequest:request fileURL:fileURL];
             completionBlock(response);
         } else {
+            NSLog(@"[PTTorrentStreamer] queued request range=[%lu,%lu] — waiting for pieces",
+                  (unsigned long)request.byteRange.location,
+                  (unsigned long)request.byteRange.length);
             [weakSelf.requestedRangeInfo setObject:request forKey:@"request"];
             [weakSelf.requestedRangeInfo setObject:completionBlock forKey:@"completionBlock"];
         }
@@ -533,9 +644,20 @@ static NSInteger sMinPiecesOverride = 0;
         requiredSize -= fileSize;
     }
 
-    if (requiredSize > availableSpace.longLongValue) {
-        PTSize *fileSize = [PTSize sizeWithLongLong: file_size];
-        NSString *description = [NSString localizedStringWithFormat:@"There is not enough space to download the torrent. Please clear at least %@ and try again.".localizedString, fileSize.stringValue];
+    // Streaming-aware headroom check. Reserving the *whole* file size
+    // up-front made "insufficient space" fire on plenty-of-space
+    // systems streaming a 15 GB 4K release with only 12 GB free —
+    // even though the user typically watches once, downloads a few
+    // GB worth of the file, then quits. Cap the upfront requirement
+    // at `kStreamingHeadroom` so the pre-check rejects only genuinely
+    // disk-starved volumes; if the disk does fill mid-stream
+    // libtorrent halts cleanly.
+    static const int64_t kStreamingHeadroom = 2LL * 1024 * 1024 * 1024;  // 2 GB
+    int64_t headroomNeeded = std::min(requiredSize, kStreamingHeadroom);
+
+    if (headroomNeeded > availableSpace.longLongValue) {
+        PTSize *headroomSize = [PTSize sizeWithLongLong: headroomNeeded];
+        NSString *description = [NSString localizedStringWithFormat:@"There is not enough space to download the torrent. Please clear at least %@ and try again.".localizedString, headroomSize.stringValue];
         NSError *error = [[NSError alloc] initWithDomain:@"com.popcorntimetv.popcorntorrent.error" code:-4 userInfo:@{NSLocalizedDescriptionKey: description}];
         [self handleTorrentError:error];
         return;
@@ -647,7 +769,26 @@ static NSInteger sMinPiecesOverride = 0;
     }
     
     int requiredPieces = (int)copyRequired.size();
-    float bufferingProgress = 1.0 - (requiredPieces - requiredPiecesDownloaded)/(float)requiredPieces;
+
+    // bufferingProgress is the public "ready to play" signal. The
+    // internal `required_pieces` is a sliding window — `prioritize
+    // NextPieces` clears it and refills it with the *next* head batch
+    // every time a window completes. Reporting the raw windowed ratio
+    // makes the UI bar lurch 100 % → 25 % → 100 % as windows slide.
+    // Latch a flag the first time the initial window finishes; from
+    // there on, hold the public value at 1.0 — the windowed maths
+    // stay internal for `allRequiredPiecesDownloaded` book-keeping.
+    float bufferingProgress;
+    if (_initialBufferingComplete) {
+        bufferingProgress = 1.0f;
+    } else {
+        bufferingProgress = 1.0f - (requiredPieces - requiredPiecesDownloaded) / (float)requiredPieces;
+        if (allRequiredPiecesDownloaded) {
+            _initialBufferingComplete = YES;
+            bufferingProgress = 1.0f;
+        }
+    }
+
     _torrentStatus = {
         bufferingProgress,
         _status.progress,
@@ -676,6 +817,9 @@ static NSInteger sMinPiecesOverride = 0;
             // pieces to it). Construct the response now and fulfil
             // the queued request.
             if (queuedRequest && completionBlock) {
+                NSLog(@"[PTTorrentStreamer] fulfilling queued request range=[%lu,%lu]",
+                      (unsigned long)queuedRequest.byteRange.location,
+                      (unsigned long)queuedRequest.byteRange.length);
                 NSURL *fileURL = [NSURL fileURLWithPath:[self.savePath stringByAppendingPathComponent:_fileName]];
                 GCDWebServerResponse *response = [self makeFileResponseForRequest:queuedRequest fileURL:fileURL];
                 completionBlock(response);

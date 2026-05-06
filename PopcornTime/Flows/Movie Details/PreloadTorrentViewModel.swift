@@ -11,9 +11,12 @@ import PopcornKit
 import PopcornTorrent
 import MediaPlayer.MPMediaItem
 import Combine
+import os
 #if canImport(UIKit)
 import UIKit
 #endif
+
+private let prefetchLog = Logger(subsystem: "swiftui.PopcornTime", category: "prefetch")
 
 /// Warms up the auto-pick torrent in the background while the user
 /// is still browsing the movie detail page. When they eventually tap
@@ -34,53 +37,91 @@ import UIKit
 /// the prefetcher is deinitialised, so the data we've pulled stays
 /// in the temp cache and is reused if the user taps Play within the
 /// same session.
+/// Single global background warmer. Tying this to a per-`PlayButton`
+/// `@StateObject` was unreliable: SwiftUI's `NavigationStack` doesn't
+/// guarantee `.onDisappear` fires on push, and `@StateObject` deinit
+/// timing depends on whether the parent retains the view. The
+/// singleton sidesteps both: only one prefetch is ever active at a
+/// time, and `start(media:)` for a new movie atomically cancels
+/// whatever was warming before.
 @MainActor
-final class MoviePrefetcher: ObservableObject {
-    private var streamer: PTTorrentStreamer?
-    private var prefetchedURL: String?
+final class MoviePrefetcher {
+    static let shared = MoviePrefetcher()
 
-    /// Pick the most-likely-played torrent for `media` (using the same
-    /// `adjustedQualityScore` ranking the auto-play path uses) and
-    /// kick off a background streamer for it. Idempotent: a second
-    /// call with the same target is a no-op while the first is in
-    /// flight; switching to a different target cancels the previous.
+    /// `nonisolated(unsafe)` so the (implicitly nonisolated) deinit
+    /// can release the streamer. `PTTorrentStreamer` isn't `Sendable`
+    /// but is safe in practice — libtorrent's session does its own
+    /// locking. All non-deinit reads/writes are main-actor via
+    /// `start(media:)` and `cancel()`.
+    nonisolated(unsafe) private var streamer: PTTorrentStreamer?
+    nonisolated(unsafe) private var prefetchedURL: String?
+
+    private init() {}
+
+    /// Pick the torrent that `SelectTorrentQualityButton.autoSelect
+    /// Torrent` would pick for the current `Session.autoSelectQuality`,
+    /// and kick off a background streamer for it. Idempotent: a
+    /// second call with the same target is a no-op while the first
+    /// is in flight; switching to a different target cancels the
+    /// previous.
     func start(media: Media) {
         // Don't prefetch when the user explicitly wants the picker —
         // we can't guess which source they'll choose, and prefetching
         // the wrong one wastes bandwidth.
-        guard Session.autoSelectQuality != "Selectable" else { return }
-
-        let candidates = media.torrents
-        guard let target = candidates.max(by: { adjustedQualityScore($0) < adjustedQualityScore($1) }) else {
+        guard Session.autoSelectQuality != "Selectable" else {
+            prefetchLog.info("skip — autoSelectQuality=Selectable for \(media.title, privacy: .public)")
             return
         }
-        guard prefetchedURL != target.url else { return }
+
+        guard let target = autoPickTarget(in: media.torrents) else {
+            prefetchLog.info("skip — no torrent picked (have \(media.torrents.count)) for \(media.title, privacy: .public)")
+            return
+        }
+        guard prefetchedURL != target.url else {
+            prefetchLog.info("already warming \(target.quality ?? "?", privacy: .public) for \(media.title, privacy: .public)")
+            return
+        }
 
         cancel()
         prefetchedURL = target.url
+        prefetchLog.info("start \(target.quality ?? "?", privacy: .public) for \(media.title, privacy: .public)")
 
         let s = PTTorrentStreamer()
         self.streamer = s
+        // All four streamer callbacks are invoked from libtorrent's
+        // background `com.popcorntimetv.popcorntorrent.alerts` queue,
+        // not from the main actor. Closures created inside this
+        // `@MainActor` class would otherwise inherit @MainActor
+        // isolation, and Swift 6 traps with SIGTRAP the first time
+        // libtorrent fires the selectFileToStream block from off-
+        // main (this killed the app while waiting on the movie
+        // details page). `@Sendable` opts the closures out of the
+        // isolation inheritance so they run on whatever thread
+        // libtorrent calls them on.
+        let progress: @Sendable (PTTorrentStatus) -> Void = { _ in }
+        let ready: @Sendable (URL, URL) -> Void = { _, _ in }
+        let failure: @Sendable (Error) -> Void = { _ in }
+        let selector: @Sendable ([String], [NSNumber]) -> Int32 = { _, fileSizes in
+            // Mirror PreloadTorrentViewModel's biggest-file pick so
+            // the data we cache is the same one the play streamer
+            // will need. For single-file torrents this is trivial.
+            guard fileSizes.count > 1 else { return 0 }
+            var maxSize: Int64 = 0
+            var maxIndex: Int32 = 0
+            for (i, sz) in fileSizes.enumerated() {
+                if sz.int64Value > maxSize {
+                    maxSize = sz.int64Value
+                    maxIndex = Int32(i)
+                }
+            }
+            return maxIndex
+        }
         s.startStreaming(
             fromMultiTorrentFileOrMagnetLink: target.url,
-            progress: { _ in },
-            readyToPlay: { _, _ in },
-            failure: { _ in },
-            selectFileToStream: { _, fileSizes in
-                // Mirror PreloadTorrentViewModel's biggest-file pick so
-                // the data we cache is the same one the play streamer
-                // will need. For single-file torrents this is trivial.
-                guard fileSizes.count > 1 else { return 0 }
-                var maxSize: Int64 = 0
-                var maxIndex: Int32 = 0
-                for (i, sz) in fileSizes.enumerated() {
-                    if sz.int64Value > maxSize {
-                        maxSize = sz.int64Value
-                        maxIndex = Int32(i)
-                    }
-                }
-                return maxIndex
-            }
+            progress: progress,
+            readyToPlay: ready,
+            failure: failure,
+            selectFileToStream: selector
         )
     }
 
@@ -89,130 +130,75 @@ final class MoviePrefetcher: ObservableObject {
     /// kept — the play streamer can pick up from where prefetch left
     /// off if the user taps Play immediately.
     func cancel() {
+        if let url = prefetchedURL {
+            prefetchLog.info("cancel — was warming \(url, privacy: .public)")
+        }
         streamer?.cancelStreamingAndDeleteData(false)
         streamer = nil
         prefetchedURL = nil
     }
+
+    /// Mirror of `SelectTorrentQualityButton.autoSelectTorrent`'s
+    /// switch on `Session.autoSelectQuality`. Kept here as a free
+    /// function rather than reaching across to the view's helper
+    /// because the view's `collapsedSelectableTorrents` filter is
+    /// language/audio-aware and bound to its own `@State`. For
+    /// prefetch purposes the un-collapsed pool gives the same
+    /// `max`/`min`-by-score answer for Optimal and the same
+    /// extremes for Highest/Low — and if it picks slightly
+    /// differently, the worst case is wasted background bandwidth
+    /// (the play streamer still serves the user's actual choice).
+    private func autoPickTarget(in pool: [Torrent]) -> Torrent? {
+        guard !pool.isEmpty else { return nil }
+        switch Session.autoSelectQuality {
+        case "Highest":
+            return pool.max()
+        case "Low":
+            return pool.min()
+        case "Optimal":
+            return pool.max(by: { adjustedQualityScore($0) < adjustedQualityScore($1) })
+        default:
+            return pool.max(by: { adjustedQualityScore($0) < adjustedQualityScore($1) })
+        }
+    }
 }
 
-/// Per-mode policy for the adaptive pre-buffer gate. Optimal favours
-/// smoothness: it waits for a meaningful buffer AND a sustainable
-/// download rate before starting playback. Highest still waits a bit
-/// (high-res files have less margin for error). Normal and Selectable
-/// take libtorrent's default fast-start path because the user explicitly
-/// picked low-resource or manual modes.
+/// Per-mode policy for the streamer's byte-level pre-buffer floor.
+/// The single dimension is `minPieces`: how many contiguous head
+/// pieces libtorrent must have on disk before `fastForwardTorrent
+/// ForRange:` returns YES and `readyToPlay` fires. Below ~3 the
+/// moov/cues parse can stall on some MP4/MKV files; above ~8
+/// first-frame latency is visibly long on slower swarms.
+///
+/// There used to be a second, seconds-of-runtime gate ("buffer 4 s
+/// of playback ahead before starting") on top of this. It was
+/// pulled — once libtorrent has the head pieces, just play. Mid-
+/// playback dips are covered by VLC's own `.buffering` state for
+/// transient hiccups and by `PlaybackHealthMonitor` for chronic
+/// swarm collapses (which surface a "Switch source" prompt).
 struct PrebufferPolicy {
-    /// Baseline seconds of decoded playback to buffer ahead before
-    /// starting. The runtime adds bumps for resolution, swarm health,
-    /// and download-speed variance. `nil` means the adaptive gate is
-    /// skipped entirely — libtorrent's `bufferingProgress = 1.0` is the
-    /// only signal.
-    var targetSeconds: Float?
+    var minPieces: Int
 
-    /// Minimum sustained download speed as a multiple of the file's
-    /// bitrate. `1.2` means we want 20 % headroom — a fat pre-buffer
-    /// drains 25 minutes in if download speed only matches the bitrate
-    /// exactly. `nil` skips the rate gate.
-    var rateRatio: Float?
+    /// Fast — start as soon as libtorrent has 3 head pieces on disk
+    /// (≈3–6 MB). Snappiest first-frame; tightest tolerance for slow
+    /// swarms.
+    static let fastStrategy     = PrebufferPolicy(minPieces: 3)
+    /// Balanced — wait for 4 head pieces (≈4–8 MB). Default; works
+    /// even on swarms that are a bit thin.
+    static let balancedStrategy = PrebufferPolicy(minPieces: 4)
+    /// Smooth — 8 head pieces (≈8–16 MB) before starting. More
+    /// upfront wait, more cushion against immediate stalls on
+    /// chronically slow connections.
+    static let smoothStrategy   = PrebufferPolicy(minPieces: 8)
 
-    /// How long the adaptive gate will hold playback before giving
-    /// up and starting anyway. Only meaningful when `targetSeconds
-    /// != nil` (otherwise the gate is bypassed). Per-strategy so
-    /// Fast / Balanced / Smooth can each pick a sensible ceiling.
-    var maxWaitSeconds: TimeInterval = 30
-
-    /// Number of head pieces libtorrent must have on disk before
-    /// `PTTorrentStreamer.fastForwardTorrentForRange:` returns YES
-    /// for VLC's first range request. Plumbed via
-    /// `PTTorrentStreamer.setMinPiecesOverride:` — actually changes
-    /// the byte-level pre-buffer wait, not just the Swift-side
-    /// adaptive gate. Below ~3 the moov/cues parse can stall on
-    /// some MP4/MKV files; above ~8 first-frame latency is visibly
-    /// long on slower swarms.
-    var minPieces: Int = 4
-
-    // Three named presets the user picks via Settings →
-    // `Buffering Strategy`.
-    //
-    // `Fast` is properly immediate — adaptive gate skipped entirely
-    // (`targetSeconds: nil`), and libtorrent's pre-buffer is dropped
-    // to 3 head pieces (≈3–6 MB). First-frame latency on a healthy
-    // swarm settles around 1–3 s.
-    //
-    // `Balanced` keeps the proven 4-piece floor (≈4–8 MB) and gates
-    // playback start on ~4 s of buffered playback. Buffer absorbs
-    // short-term speed fluctuations.
-    //
-    // `Smooth` is the most conservative — 8 piece pre-buffer
-    // (≈8–16 MB) and 8 s playback buffer; if the rate genuinely
-    // can't sustain bitrate, the in-playback `bufferStall` health
-    // monitor surfaces a Switch suggestion mid-playback.
-    static let fastStrategy     = PrebufferPolicy(targetSeconds: nil, rateRatio: nil, maxWaitSeconds: 15, minPieces: 3)
-    static let balancedStrategy = PrebufferPolicy(targetSeconds: 4,   rateRatio: nil, maxWaitSeconds: 30, minPieces: 4)
-    static let smoothStrategy   = PrebufferPolicy(targetSeconds: 8,   rateRatio: nil, maxWaitSeconds: 60, minPieces: 8)
-    /// Used for `Selectable` quality mode — user is picking
-    /// manually each play, so we trust their judgement and start
-    /// immediately without adaptive gating.
-    static let immediate        = PrebufferPolicy(targetSeconds: nil, rateRatio: nil, minPieces: 3)
-
-    /// Resolves the active policy from
-    /// `Session.bufferingStrategy`, with `Selectable` quality short-
-    /// circuiting to immediate-start regardless of the strategy
-    /// pick (the user is making the choice anyway, no second-
-    /// guessing).
+    /// Resolves the active policy from `Session.bufferingStrategy`.
     @MainActor
     static var current: PrebufferPolicy {
-        if Session.autoSelectQuality == "Selectable" {
-            return .immediate
-        }
         switch Session.bufferingStrategy {
         case "Smooth":   return .smoothStrategy
         case "Balanced": return .balancedStrategy
         case "Fast":     return .fastStrategy
         default:         return .fastStrategy
-        }
-    }
-}
-
-/// Phase the adaptive pre-buffer gate is in — drives the friendly
-/// waiting message rendered by `PreloadTorrentView`.
-enum AdaptiveBufferStatus: Equatable {
-    /// libtorrent hasn't fired `readyToPlay` yet; we're still in the
-    /// initial download phase. The progress bar carries the message,
-    /// no banner is needed.
-    case initialBuffering
-
-    /// libtorrent says ready, but we haven't accumulated enough data
-    /// ahead of the playhead for our quality target. `have` and `need`
-    /// are seconds of decoded playback.
-    case waitingForBuffer(have: Float, need: Float)
-
-    /// We have enough buffer, but observed download speed isn't fast
-    /// enough to sustain the bitrate without later stalls.
-    case waitingForRate(currentBps: Int, requiredBps: Int)
-
-    /// Both gates passed — playback can start now.
-    case ready
-
-    /// One-line status to render under the linear progress bar. Always
-    /// returns a string so the preload view can keep a single, stable
-    /// status row instead of switching between an indeterminate spinner
-    /// and a labeled progress bar (Apple HIG: don't mix determinate
-    /// and indeterminate progress in the same flow).
-    var statusMessage: String {
-        switch self {
-        case .initialBuffering:
-            return "Connecting to source…".localized
-        case .ready:
-            return "Starting playback…".localized
-        case .waitingForBuffer(let have, let need):
-            let haveStr = String(format: "%.0f", have)
-            let needStr = String(format: "%.0f", need)
-            return String(format: "Buffering for smooth playback — %@s of %@s ready…".localized, haveStr, needStr)
-        case .waitingForRate(let currentBps, let requiredBps):
-            let cur = ByteCountFormatter.string(fromByteCount: Int64(currentBps), countStyle: .binary)
-            let need = ByteCountFormatter.string(fromByteCount: Int64(requiredBps), countStyle: .binary)
-            return String(format: "Waiting for stable connection — %@/s, need %@/s for smooth playback…".localized, cur, need)
         }
     }
 }
@@ -414,7 +400,16 @@ class PreloadTorrentViewModel: ObservableObject {
     var watchedProgress: Float = 0.0
 
     @Published var isProcessing = true
+    /// Monotonic 0–1 "ready to play" progress, sourced from
+    /// `PTTorrentStatus.bufferingProgress`. The streamer pins this to
+    /// 1.0 once the initial head-piece batch is on disk; the
+    /// `max(...)` here is defence-in-depth so any future contributor
+    /// reading this property gets a non-decreasing value.
     @Published var progress: Float = 0.0
+    /// Fraction of the selected file currently on disk (0–1). Sourced
+    /// from `PTTorrentStatus.totalProgress` — strictly monotonic,
+    /// surfaced in the preload stats panel as "Downloaded".
+    @Published var totalProgress: Float = 0.0
     @Published var speed: Int = 0
     @Published var seeds: Int = 0
     var streamer: PTTorrentStreamer?
@@ -458,12 +453,7 @@ class PreloadTorrentViewModel: ObservableObject {
     /// the user with the "Resume Playing / Start from Beginning" alert.
     var isResumingFromSwap: Bool = false
 
-    /// Drives the friendly "why are we waiting" banner in
-    /// `PreloadTorrentView`. Updated as the adaptive gate evaluates each
-    /// `PTTorrentStatus` tick after libtorrent fires `readyToPlay`.
-    @Published var adaptiveStatus: AdaptiveBufferStatus = .initialBuffering
-
-    /// Set true 10 s after play starts, even when the health monitor
+    /// Set true 30 s after play starts, even when the health monitor
     /// hasn't fired anything yet. Drives the inline "Taking a while?
     /// Switch source" link on `PreloadTorrentView` so users with an
     /// itchy trigger finger can swap without waiting for the monitor
@@ -472,23 +462,6 @@ class PreloadTorrentViewModel: ObservableObject {
     /// release). Hidden whenever a real `healthIssue` is showing —
     /// the toast takes over.
     @Published var showSwitchSourcePrompt: Bool = false
-
-    /// Stored playBlock invocation kept until the adaptive gate clears.
-    /// libtorrent's `readyToPlay` callback hands us this; we deferr it
-    /// while we wait for buffer + rate criteria.
-    private var deferredPlayBlock: (() -> Void)?
-
-    /// When the adaptive gate started holding playback. Used to enforce
-    /// the strategy-specific `maxWaitSeconds` upper bound so the user
-    /// is never stuck on the loading screen because their connection
-    /// can't satisfy the rate gate (e.g. 4K bitrate above their
-    /// available bandwidth — the rate gate would otherwise hold
-    /// forever waiting for an impossible threshold).
-    private var deferredSince: Date?
-
-    /// Rolling 10 samples of `downloadSpeed` for variance + average.
-    private var speedSamples: [Int] = []
-    private let maxSpeedSamples = 10
 
     // Storage that libtorrent's background thread (com.popcorntimetv.popcorntorrent.alerts)
     // can read without crossing into MainActor isolation.
@@ -657,10 +630,10 @@ class PreloadTorrentViewModel: ObservableObject {
         
         let loadingBlock: (PTTorrentStatus) -> Void = { status in
             self.isProcessing = false
-            self.progress = status.bufferingProgress
+            self.progress = max(self.progress, status.bufferingProgress)
+            self.totalProgress = max(self.totalProgress, status.totalProgress)
             self.speed = Int(status.downloadSpeed)
             self.seeds = Int(status.seeds)
-            self.recordSpeedSample(Int(status.downloadSpeed))
             // Once `playerModel` is set, playback has begun and
             // PlayerViewModel has taken over health monitoring via
             // `PTTorrentStatusDidChange` with `phase: .playback`. The
@@ -669,19 +642,6 @@ class PreloadTorrentViewModel: ObservableObject {
             // signals (slowStart) from emitting during playback.
             if self.playerModel == nil {
                 self.healthMonitor.observe(status: status, phase: .preBuffer)
-            }
-            // Adaptive pre-buffer gate. libtorrent's readyToPlay fires
-            // when its internal threshold is met, but for high-res
-            // sources that's often not enough buffer to play smoothly.
-            // We hold the deferred playBlock until both the buffer-
-            // headroom and sustained-rate criteria pass.
-            if let deferred = self.deferredPlayBlock {
-                let next = self.evaluateAdaptiveGate(status: status)
-                self.adaptiveStatus = next
-                if next == .ready {
-                    self.deferredPlayBlock = nil
-                    deferred()
-                }
             }
         }
         let errorBlock: (Error) -> Void = { error in
@@ -711,21 +671,7 @@ class PreloadTorrentViewModel: ObservableObject {
                 // unreachable magnets aren't kept around to waste
                 // session warmup at next launch.
                 Session.recordRecentlyPlayed(magnetURL: url)
-                let block = {
-                    playBlock(videoFileURL, videoFilePath, self.media, nextEpisode)
-                }
-                // If the user picked a fast-start mode (Normal /
-                // Selectable / unknown), or we don't have the metadata
-                // we need to evaluate the adaptive gate, fire
-                // immediately. Otherwise hand the block to loadingBlock
-                // which will fire it once the gate clears.
-                if PrebufferPolicy.current.targetSeconds == nil {
-                    block()
-                } else {
-                    self.deferredPlayBlock = block
-                    self.deferredSince = Date()
-                    self.adaptiveStatus = .waitingForBuffer(have: 0, need: 0)
-                }
+                playBlock(videoFileURL, videoFilePath, self.media, nextEpisode)
             }, failure: { error in
                 DispatchQueue.main.async {
                     errorBlock(error)
@@ -769,159 +715,6 @@ class PreloadTorrentViewModel: ObservableObject {
         return false
     }
 
-    // MARK: - Adaptive pre-buffer gate
-
-    /// Append the current download speed to the rolling sample window.
-    /// 10 samples ≈ 5 s of history at libtorrent's ~2 Hz callback rate,
-    /// which matches the spec's "average speed over the last 10 s."
-    private func recordSpeedSample(_ speed: Int) {
-        speedSamples.append(speed)
-        if speedSamples.count > maxSpeedSamples {
-            speedSamples.removeFirst(speedSamples.count - maxSpeedSamples)
-        }
-    }
-
-    /// Decide whether the adaptive criteria are met yet. Called once
-    /// per progress tick after libtorrent fired its `readyToPlay`.
-    private func evaluateAdaptiveGate(status: PTTorrentStatus) -> AdaptiveBufferStatus {
-        let policy = PrebufferPolicy.current
-        guard let baseTarget = policy.targetSeconds else {
-            return .ready  // Fast-start policy — gate is open by default.
-        }
-
-        // Hard timeout — if we've been holding playback for over the
-        // strategy's `maxWaitSeconds`, give up and play anyway.
-        // Better a small buffer than the user staring at the wait
-        // screen because their network can't physically satisfy the
-        // rate gate.
-        if let deferredSince, Date().timeIntervalSince(deferredSince) > policy.maxWaitSeconds {
-            return .ready
-        }
-
-        // Without media runtime we can't translate bytes-buffered into
-        // seconds-buffered, so the seconds-based gate is meaningless.
-        // libtorrent has already fired `readyToPlay` by the time we
-        // reach this code, so trust its signal and let playback start.
-        guard let durationSec = mediaDurationSeconds, durationSec > 0 else {
-            return .ready
-        }
-
-        // Buffer-headroom target (seconds), tuned to swarm + content.
-        // Bumps are deliberately small — the strategy preset already
-        // reflects the user's preference, the bumps just add caution
-        // when the swarm/content actively warrants it. Earlier values
-        // (4K +3, marginal +6, weak +15, variance +5) added many
-        // seconds of perceived wait on common edge cases.
-        var target = baseTarget
-        let q = (torrent.quality ?? "").lowercased()
-        if q == "2160p" || q == "4k" {
-            target += 2  // bigger frames + decoder warmup
-        }
-        if status.peers < 3 {
-            target += 10  // very thin swarm — be patient or it'll stall immediately
-        } else if status.peers < 10 {
-            target += 4   // marginal swarm
-        }
-        if speedVariance > 0.5 {
-            target += 3   // speed flapping → drain risk
-        }
-
-        let buffered = secondsBuffered(status: status)
-        if buffered < target {
-            return .waitingForBuffer(have: buffered, need: target)
-        }
-
-        // Sustained-rate gate. Only enforced when we can compute the
-        // file's bitrate (filesize + media runtime both known) — without
-        // it, we'd block forever on metadata gaps.
-        if let rateRatio = policy.rateRatio,
-           let bitrate = fileBitrate, bitrate > 0 {
-            let avg = avgDownloadSpeed
-            let required = Int(Double(bitrate) * Double(rateRatio))
-            if avg < required {
-                return .waitingForRate(currentBps: avg, requiredBps: required)
-            }
-        }
-
-        return .ready
-    }
-
-    /// Approximate seconds of decoded playback already downloaded.
-    /// libtorrent's sequential prioritisation makes `totalProgress`
-    /// roughly equal to "fraction of the playhead consumable now,"
-    /// so multiplying by media runtime gives a useful proxy.
-    private func secondsBuffered(status: PTTorrentStatus) -> Float {
-        guard let durationSec = mediaDurationSeconds, durationSec > 0 else { return 0 }
-        return Float(durationSec) * status.totalProgress
-    }
-
-    /// Media runtime in seconds, drawn from `Movie.runtime` or the
-    /// parent `Show.runtime` for episodes. `nil` when unknown — the
-    /// adaptive gate then falls back to a no-op via the bitrate check.
-    private var mediaDurationSeconds: Int? {
-        if let movie = media as? Movie, movie.runtime > 0 {
-            return movie.runtime * 60
-        }
-        if let episode = media as? Episode, let runtime = episode.show?.runtime, runtime > 0 {
-            return runtime * 60
-        }
-        return nil
-    }
-
-    /// Parse `Torrent.size` (e.g. "2.5 GB", "850 MB") into bytes. The
-    /// popcorn-api reports sizes as human-readable strings rather than
-    /// raw byte counts, so this is the canonical conversion point.
-    private var torrentSizeBytes: Int64? {
-        return Self.parseSize(torrent.size)
-    }
-
-    private static func parseSize(_ size: String?) -> Int64? {
-        guard let s = size else { return nil }
-        let parts = s.split(separator: " ").map(String.init)
-        guard parts.count >= 2, let value = Double(parts[0]) else { return nil }
-        let multiplier: Double
-        switch parts[1].uppercased() {
-        case "GB":  multiplier = 1_073_741_824
-        case "MB":  multiplier = 1_048_576
-        case "KB":  multiplier = 1024
-        case "B":   multiplier = 1
-        default:    return nil
-        }
-        return Int64(value * multiplier)
-    }
-
-    /// File bitrate in bytes/sec — the rate the playhead consumes data
-    /// at. Used by the sustained-rate gate to decide if download speed
-    /// is healthy enough to sustain playback. `nil` when filesize or
-    /// runtime are unknown.
-    private var fileBitrate: Int? {
-        guard let bytes = torrentSizeBytes, bytes > 0,
-              let durationSec = mediaDurationSeconds, durationSec > 0 else {
-            return nil
-        }
-        return Int(Double(bytes) / Double(durationSec))
-    }
-
-    /// Average of the last `maxSpeedSamples` download-speed samples.
-    private var avgDownloadSpeed: Int {
-        guard !speedSamples.isEmpty else { return 0 }
-        return speedSamples.reduce(0, +) / speedSamples.count
-    }
-
-    /// Coefficient of variation (stddev / mean) of the speed window.
-    /// Above ~0.5 means download speed is flapping enough that the
-    /// adaptive gate adds extra buffer headroom — variable swarms
-    /// drain a fixed buffer faster than steady ones at the same mean.
-    private var speedVariance: Double {
-        guard speedSamples.count >= 5 else { return 0 }
-        let n = Double(speedSamples.count)
-        let mean = Double(speedSamples.reduce(0, +)) / n
-        guard mean > 0 else { return 1 }
-        let sumSquares = speedSamples.map { pow(Double($0) - mean, 2) }.reduce(0, +)
-        let stddev = sqrt(sumSquares / n)
-        return stddev / mean
-    }
-    
     /// Called from libtorrent's background alerts queue. Must remain `nonisolated`
     /// so it can run there without tripping Swift 6's main-actor executor check.
     nonisolated func selectFileToStream(fileNames: [String], fileSizes: [NSNumber]) -> Int32 {

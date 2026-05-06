@@ -27,19 +27,15 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
     
     struct AlertType: Identifiable {
         enum Choice {
-            case noTorrentsFound, streamOnCellular, audioLanguageMissing
+            case noTorrentsFound, streamOnCellular
         }
 
         var id: Choice
-        var languageDisplay: String?
     }
 
 
     @State var showChooseQualityActionSheet = false
     @State var alert: AlertType?
-    /// Set when the user dismisses the "no torrents in your language" alert
-    /// — proceeds with playback against the full unfiltered list.
-    @State var fallbackToAnyLanguage = false
     /// Optional one-line explanation rendered above the picker when the
     /// quality floor pushes us out of the auto-play path (e.g. all sources
     /// are screeners). `nil` when the picker is shown without context
@@ -55,12 +51,12 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
 
             if media.torrents.count == 0 {
                 alert = .init(id: .noTorrentsFound)
-            } else if !fallbackToAnyLanguage,
-                      let preferred = preferredLanguageFilter,
-                      preferredLanguageTorrents.isEmpty {
-                let display = (Locale.current.localizedString(forLanguageCode: preferred) ?? preferred).capitalized
-                alert = .init(id: .audioLanguageMissing, languageDisplay: display)
             } else {
+                // Silent fallback when the preferred audio language has
+                // no torrents — `selectableTorrents` returns the full
+                // unfiltered list in that case. The action button row
+                // surfaces a `LanguageSelector` next to Play so the user
+                // can swap language without diving into Settings.
                 startPlayback()
             }
         }, label: label)
@@ -111,18 +107,6 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
                         Session.streamOnCellular = true
                       },
                       secondaryButton: .cancel())
-            case .audioLanguageMissing:
-                let lang = alert.languageDisplay ?? "your preferred language"
-                return Alert(
-                    title: Text("No \(lang) audio available"),
-                    message: Text("No torrents in \(lang) were found for this title. Continue with another language?"),
-                    primaryButton: .default(Text("Continue")) {
-                        fallbackToAnyLanguage = true
-                        // Re-run the selection flow against the full list.
-                        startPlayback()
-                    },
-                    secondaryButton: .cancel()
-                )
             }
 
         }
@@ -151,10 +135,11 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
     }
 
     /// Pool to draw from when picking / showing torrents — respects the
-    /// user's audio-language preference unless they've fallen back via the
-    /// "no torrents in your language" alert.
+    /// user's audio-language preference; silently falls back to every
+    /// torrent if no torrent matches (so play always works). The action
+    /// button row's `LanguageSelector` is the user-facing way to change
+    /// the preference per title.
     private var selectableTorrents: [Torrent] {
-        if fallbackToAnyLanguage { return media.torrents }
         let filtered = preferredLanguageTorrents
         return filtered.isEmpty ? media.torrents : filtered
     }
@@ -246,7 +231,7 @@ struct SelectTorrentQualityButton<Label>: View where Label : View {
         switch Session.autoSelectQuality {
         case "Highest":
             return pool.last
-        case "Normal":
+        case "Low":
             return pool.first
         case "Optimal":
             return pool.max(by: { adjustedQualityScore($0) < adjustedQualityScore($1) })

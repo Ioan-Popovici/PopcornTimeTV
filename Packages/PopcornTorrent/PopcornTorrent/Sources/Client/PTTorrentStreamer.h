@@ -53,6 +53,16 @@ FOUNDATION_EXPORT NSNotificationName const PTTorrentStatusDidChangeNotification;
 + (NSString * _Nullable)downloadDirectory;
 
 /**
+ Override the streaming-cache root. Pass `nil` to clear and fall back to
+ the `NSTemporaryDirectory()/Downloads` default. Set from Swift via
+ `Session.applyStorageOverrides()` after resolving the user's
+ security-scoped bookmark — class-level so every new `PTTorrentStreamer`
+ instance picks it up automatically.
+ */
++ (void)setDownloadDirectoryOverride:(NSString * _Nullable)path;
++ (NSString * _Nullable)downloadDirectoryOverride;
+
+/**
  Override the auto-computed `MIN_PIECES` head pre-buffer floor used by
  `fastForwardTorrentForRange:` and the initial piece-priority window.
  Auto-computation is `0.5 %` of file size clamped to 4–6 pieces.

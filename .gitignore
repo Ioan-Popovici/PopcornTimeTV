@@ -160,3 +160,7 @@ fastlane/screenshots
 *.xcscmblueprint
 
 .DS_Store
+
+### Local-only assistant files ###
+CLAUDE.md
+.claude/
