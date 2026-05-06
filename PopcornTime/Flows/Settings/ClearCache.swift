@@ -12,7 +12,16 @@ struct ClearCache {
     var title: LocalizedStringKey = ""
     var message: LocalizedStringKey = ""
 
+    @MainActor
     public mutating func emptyCache() {
+        // Drop libtorrent's in-memory torrent_handles for any warm
+        // streamers BEFORE deleting their on-disk save_path. Without
+        // this, the next Play call dedups on the stale handle and
+        // GCDWebServer aborts when it tries to read pieces whose file
+        // has been unlinked. Cached pieces are gone anyway, so the
+        // user's next Play has to redownload — which is the point.
+        TorrentSessionWarmer.shared.releaseAll()
+
         // Only touch the torrent streaming cache — `NSTemporaryDirectory()`
         // on macOS is the shared user temp folder (`/var/folders/…/T/`)
         // which contains files owned by other apps and the system; the

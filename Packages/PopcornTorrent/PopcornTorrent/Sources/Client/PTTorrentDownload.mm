@@ -16,6 +16,11 @@ NSString * const MPMediaItemPropertySelectedFileIndex = @"selectedFileIndex";
 
 using namespace libtorrent;
 
+// User-chosen saved-downloads root, distinct from PTTorrentStreamer's
+// override (the streaming cache). Set via Session.applyStorageOverrides
+// after resolving its own security-scoped bookmark. `nil` = default.
+static NSString *sDownloadDirectoryOverride = nil;
+
 @implementation PTTorrentDownload {
     PTTorrentDownloadStatus _downloadStatus;
 }
@@ -24,9 +29,29 @@ using namespace libtorrent;
     return _downloadStatus;
 }
 
++ (void)setDownloadDirectoryOverride:(NSString *)path {
+    sDownloadDirectoryOverride = [path copy];
+}
+
++ (NSString *)downloadDirectoryOverride {
+    return sDownloadDirectoryOverride;
+}
+
 + (NSString *)downloadDirectory {
+    if (sDownloadDirectoryOverride) {
+        if (![[NSFileManager defaultManager] fileExistsAtPath:sDownloadDirectoryOverride]) {
+            NSError *error;
+            [[NSFileManager defaultManager] createDirectoryAtPath:sDownloadDirectoryOverride
+                                      withIntermediateDirectories:YES
+                                                       attributes:nil
+                                                            error:&error];
+            if (error) return nil;
+        }
+        return sDownloadDirectoryOverride;
+    }
+
     NSURL *URL;
-    
+
 #if TARGET_OS_IOS
     URL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
 #elif TARGET_OS_TV
@@ -34,9 +59,9 @@ using namespace libtorrent;
 #elif TARGET_OS_MAC
     URL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
 #endif
-    
+
     NSString *downloadDirectory =  [[URL path] stringByAppendingPathComponent:@"Downloads"];
-    
+
     if (![[NSFileManager defaultManager] fileExistsAtPath:downloadDirectory]) {
         NSError *error;
         [[NSFileManager defaultManager] createDirectoryAtPath:downloadDirectory
@@ -45,7 +70,7 @@ using namespace libtorrent;
                                                         error:&error];
         if (error) return nil;
     }
-    
+
     return downloadDirectory;
 }
 

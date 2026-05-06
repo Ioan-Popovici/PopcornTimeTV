@@ -105,12 +105,12 @@ struct PreloadTorrentView: View {
         }
     }
 
-    /// Indeterminate animated linear bar + state text + stats panel.
-    /// Mirrors popcorn-desktop's `loading-progressbar` (CSS animated
-    /// `bounce_bar`) + `loading-info` block. Apple's `ProgressView()`
-    /// in `.linear` style without a `value:` parameter renders an
-    /// equivalent platform-native animation, so we don't have to
-    /// hand-roll keyframes.
+    /// Determinate linear progress bar + status line + stats panel.
+    /// The bar value is the streamer's monotonic "ready to play"
+    /// signal (`bufferingProgress`, latched to 1.0 by the streamer
+    /// once the initial head-piece batch is on disk). Apple HIG: use
+    /// a determinate progress bar whenever a measurable value exists;
+    /// reserve the indeterminate spinner for genuinely unknown work.
     ///
     /// When `Session.showStreamingDetails` is off, the entire bar +
     /// stats panel is replaced by a centered indeterminate circular
@@ -120,7 +120,7 @@ struct PreloadTorrentView: View {
     var progressView: some View {
         if showStreamingDetails {
             VStack(spacing: 12) {
-                ProgressView()
+                ProgressView(value: viewModel.progress)
                     .progressViewStyle(.linear)
                     .tint(.white)
 
@@ -133,14 +133,9 @@ struct PreloadTorrentView: View {
                     .font(.system(size: 13, weight: .regular))
                     #endif
 
-                // Stats panel — desktop's `loading-info` box. Renders a
-                // small dark rounded rectangle with key/value rows for
-                // the user who wants the actual progress numbers.
                 statsPanel
             }
         } else {
-            // Minimal mode: just a spinner. No bar, no text, no stats.
-            // The title is still rendered by the parent layout.
             ProgressView()
                 .progressViewStyle(.circular)
                 .tint(.white)
@@ -153,17 +148,20 @@ struct PreloadTorrentView: View {
         }
     }
 
-    /// Compact rounded panel with rows for buffer percent, download
-    /// rate, peers, and any time-remaining estimate. Hidden until at
-    /// least one progress callback has fired so we don't show
-    /// `0 KB/s · 0 peers` while libtorrent is still negotiating.
+    /// Compact rounded panel with download rate, peers, and how much
+    /// of the file is on disk. The "ready to play" indicator IS the
+    /// progress bar above — duplicating it here would just be noisy.
+    /// "Downloaded" tracks `totalProgress` (fraction of the selected
+    /// file written to disk), which is what users care about for
+    /// seek-back behaviour: the higher this number, the more of the
+    /// movie is locally available without re-fetching.
     @ViewBuilder
     var statsPanel: some View {
         if viewModel.speed > 0 || viewModel.seeds > 0 || viewModel.progress > 0 {
-            let pct = max(0, min(100, Int(round(viewModel.progress * 100))))
+            let downloadedPct = max(0, min(100, Int(round(viewModel.totalProgress * 100))))
             let rate = ByteCountFormatter.string(fromByteCount: Int64(viewModel.speed), countStyle: .binary)
             VStack(spacing: 6) {
-                statsRow(label: "Buffered", value: "\(pct)%")
+                statsRow(label: "Downloaded", value: "\(downloadedPct)%")
                 statsRow(label: "Download", value: "\(rate)/s")
                 statsRow(label: "Peers", value: "\(viewModel.seeds)")
             }
@@ -194,17 +192,17 @@ struct PreloadTorrentView: View {
         #endif
     }
     
-    /// Status line shown above the stats panel. Promotes the
-    /// adaptive-status default ("Connecting to source…") to
-    /// "Downloading…" once libtorrent is actually pulling bytes —
-    /// otherwise the line stays stuck on "Connecting…" while the
-    /// stats panel below is clearly downloading at MB/s, which
-    /// reads as a UI bug.
+    /// Status line shown above the stats panel. "Connecting to
+    /// source…" until libtorrent fires its first non-zero progress
+    /// callback; "Downloading…" thereafter. The streamer fires
+    /// `readyToPlay` the moment it has the head pieces on disk, so
+    /// this view dismisses the moment that happens — there is no
+    /// post-ready waiting state to message.
     private var displayStatus: String {
-        if viewModel.adaptiveStatus == .initialBuffering, viewModel.speed > 0 {
+        if viewModel.speed > 0 {
             return "Downloading…".localized
         }
-        return viewModel.adaptiveStatus.statusMessage
+        return "Connecting to source…".localized
     }
 
     /// Lead-text for the inline swap prompt. Returns the
@@ -265,6 +263,15 @@ struct PreloadTorrentView: View {
             return Alert(title: Text("Error"),
                          message: Text(viewModel.error?.localizedDescription ?? ""),
                          primaryButton: .default(Text("Clear All Cache"), action: {
+                            // Force the failed streamer to drop its data
+                            // before the global wipe. Otherwise libtorrent
+                            // can keep open file handles to per-torrent
+                            // bytes the global emptyCache unlinked,
+                            // delaying the kernel from actually freeing
+                            // those bytes — so the immediate retry hits
+                            // the same `availableSpace` check and fails.
+                            viewModel.streamer?.cancelStreamingAndDeleteData(true)
+                            viewModel.streamer = nil
                             viewModel.clearCache.emptyCache()
                             viewModel.error = nil
                             viewModel.playTorrent()

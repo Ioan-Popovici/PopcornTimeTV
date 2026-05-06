@@ -30,16 +30,10 @@
 /* Health-issue toast button — tear down current player and pick a new torrent */
 "Switch source" = "Switch source";
 
-/* Friendly explanation under the pre-buffer progress when the adaptive gate is waiting for more data — args: seconds buffered, target seconds */
-"Buffering for smooth playback — %@s of %@s ready…" = "Buffering for smooth playback — %@s of %@s ready…";
-/* Friendly explanation under the pre-buffer progress when the adaptive gate is waiting for download speed to catch up — args: current speed, required speed */
-"Waiting for stable connection — %@/s, need %@/s for smooth playback…" = "Waiting for stable connection — %@/s, need %@/s for smooth playback…";
-/* Initial preload status when libtorrent hasn't fired its first progress callback yet — replaces the indeterminate spinner */
+/* Initial preload status when libtorrent hasn't fired its first progress callback yet */
 "Connecting to source…" = "Connecting to source…";
 /* Preload status once data is actively flowing in — promoted from "Connecting…" the moment download speed > 0 */
 "Downloading…" = "Downloading…";
-/* Preload status once the adaptive gate has cleared and we're handing off to the player */
-"Starting playback…" = "Starting playback…";
 /* Inline preload prompt shown 10 s in if the user is impatient with "Connecting…" */
 "Taking a while?" = "Taking a while?";
 /* Settings toggle — when off the loading screen shows a plain spinner instead of the bar + stats panel */
