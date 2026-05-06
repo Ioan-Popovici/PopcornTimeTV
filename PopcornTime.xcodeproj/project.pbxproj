@@ -1590,7 +1590,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1632,7 +1632,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1676,7 +1676,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
@@ -1716,7 +1716,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
 				PRODUCT_NAME = PopcornTime;
@@ -1762,7 +1762,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
@@ -1807,7 +1807,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
 				PRODUCT_NAME = PopcornTime;
@@ -1848,7 +1848,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime.TopShelf;
@@ -1884,7 +1884,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime.TopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
