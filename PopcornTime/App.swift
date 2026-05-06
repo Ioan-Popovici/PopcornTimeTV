@@ -13,9 +13,16 @@ import os.log
 
 @main
 struct PopcornTime: App {
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         CrashReporter.install()
+        #if os(macOS)
+        // Resolve the user's storage-path bookmarks before any streamer
+        // is constructed (the bootstrap below kicks PTTorrentsSession
+        // five seconds in). Idempotent and cheap when no override is set.
+        Session.applyStorageOverrides()
+        #endif
     }
 
     var body: some Scene {
@@ -45,6 +52,20 @@ struct PopcornTime: App {
                             // re-introduce a safer warm strategy.
                             //
                             // TorrentSessionWarmer.shared.warmAllRecentlyPlayed()
+                        }
+                    }
+                    .onChange(of: scenePhase) { _, newPhase in
+                        // "Clear Cache Upon Exit" semantics: wipe the
+                        // streaming cache when the scene leaves the
+                        // foreground. macOS additionally hooks
+                        // `applicationWillTerminate` for the
+                        // proper-quit case (see AppDelegate). Player
+                        // exit no longer deletes anything, so partial
+                        // downloads survive across player sessions
+                        // for instant seek-back and re-watch.
+                        if newPhase == .background, Session.removeCacheOnPlayerExit {
+                            var cleaner = ClearCache()
+                            cleaner.emptyCache()
                         }
                     }
             }
@@ -82,6 +103,18 @@ struct PopcornTime: App {
     final class AppDelegate: NSObject, NSApplicationDelegate {
         func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
             true
+        }
+
+        @MainActor
+        func applicationWillTerminate(_ notification: Notification) {
+            // Definitive app-quit cache wipe when the user has opted
+            // in. The scenePhase `.background` handler covers most
+            // cases; this catches the macOS Cmd-Q path where the
+            // window closes and termination follows immediately
+            // without an intermediate background phase.
+            guard Session.removeCacheOnPlayerExit else { return }
+            var cleaner = ClearCache()
+            cleaner.emptyCache()
         }
     }
 #endif

@@ -177,6 +177,7 @@ struct MovieDetailsView: View, MediaPosterLoader {
             HStack(spacing: 24) {
                 TrailerButton(viewModel: viewModel.trailerModel)
                 PlayButton(media: movie)
+                LanguageSelector(media: movie)
                 watchlistButton
                 watchedButton
                 DownloadButton(viewModel: viewModel.downloadModel)

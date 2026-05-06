@@ -8,6 +8,9 @@
 
 import SwiftUI
 import PopcornKit
+#if os(macOS)
+import AppKit
+#endif
 
 struct SettingsView: View {
     let theme = Theme()
@@ -74,12 +77,13 @@ struct SettingsView: View {
                 Section {
                     qualityAlertButton
                     bufferingStrategyButton
+                    autoResumeToggle
                     showStreamingDetailsToggle
                     if viewModel.hasCellularNetwork {
                         streamOnCellularToggle
                     }
                 } header: { Text("Playback") }
-                  footer: { Text("Choose the auto-pick strategy, the buffering strategy, what the loading screen shows, and where streaming is allowed.") }
+                  footer: { Text("Choose the auto-pick strategy, the buffering strategy, whether saved progress auto-resumes, what the loading screen shows, and where streaming is allowed.") }
 
                 Section {
                     audioLanguageButton
@@ -149,6 +153,9 @@ struct SettingsView: View {
                                   value: bufferingStrategy.localized) {
                         showBufferingStrategyAlert = true
                     }
+                    tvOSToggleRow(icon: "play.circle",
+                                  title: "Auto-Resume Playback",
+                                  isOn: $autoResume) { Session.autoResume = $0 }
                     tvOSToggleRow(icon: "info.circle",
                                   title: "Show Streaming Details",
                                   isOn: $showStreamingDetails) { Session.showStreamingDetails = $0 }
@@ -260,6 +267,13 @@ struct SettingsView: View {
     /// long-press shortcut writing a different value) re-sync.
     @State private var macOSQualitySelection: String = Session.autoSelectQuality
 
+    /// Toggled after each storage-path change to force the Storage
+    /// Section to rebuild. The displayed paths come from static
+    /// `Session.streamingCachePath` / `Session.savedDownloadsPath`,
+    /// which aren't observable — `.id()` on the Section ties its
+    /// identity to this state so a flip triggers a re-render.
+    @State private var storageRefreshTrigger: Bool = false
+
     /// One-line description for the currently-selected quality mode —
     /// rendered as the section footer so the explanation tracks the
     /// dropdown selection. Same copy as `QualityPickerView` so the two
@@ -267,10 +281,10 @@ struct SettingsView: View {
     private func qualityDescription(for value: String) -> String {
         switch value {
         case "Optimal":
-            return "Adaptive — picks the best quality your connection can sustain and waits for enough buffer to play without stuttering. Recommended.".localized
+            return "Adaptive — picks the best source by composite quality (release tier > resolution > seeds). Recommended.".localized
         case "Highest":
             return "Always picks the highest resolution available. May take longer to start on 4K sources or weak swarms.".localized
-        case "Normal":
+        case "Low":
             return "Lowest resolution for the fastest start and lowest bandwidth. Useful on slow or metered connections.".localized
         case "Selectable":
             return "Shows the source picker every time you tap Play, so you can pick the exact release.".localized
@@ -279,19 +293,77 @@ struct SettingsView: View {
         }
     }
 
+    /// Storage-path row used twice in the macOS Storage section, once
+    /// for the streaming cache and once for saved downloads. Path is
+    /// shown in `~`-abbreviated, monospaced, middle-truncated form so
+    /// long Containers paths stay readable. Reset only renders when an
+    /// override is active — for the default path there's nothing to
+    /// reset to.
+    @ViewBuilder
+    private func storagePathRow(
+        label: LocalizedStringKey,
+        path: String,
+        isOverridden: Bool,
+        onChoose: @escaping (URL) -> Void,
+        onReset: @escaping () -> Void
+    ) -> some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Text((path as NSString).abbreviatingWithTildeInPath)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Button("Choose…") { chooseFolder(handler: onChoose) }
+                if isOverridden {
+                    Button("Reset", action: onReset)
+                }
+            }
+        } label: {
+            Text(label)
+        }
+    }
+
+    /// Open an NSOpenPanel rooted at the user's home, restricted to
+    /// directories. macOS sandbox grants read-write access to whatever
+    /// the user selects via `com.apple.security.files.user-selected.
+    /// read-write`; Session captures a security-scoped bookmark from
+    /// the returned URL so the access survives across launches.
+    private func chooseFolder(handler: @escaping (URL) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Pick a folder PopcornTime can use for this storage location."
+        if panel.runModal() == .OK, let url = panel.url {
+            handler(url)
+        }
+    }
+
     var macOSBody: some View {
         Form {
+            // Per-control helper rows live directly under each Picker so
+            // the description tracks the dropdown it explains, mirroring
+            // System Settings → Display & Brightness (helper text under
+            // the relevant control, not stacked at the section footer).
             Section {
                 Picker("Auto Select Quality", selection: $macOSQualitySelection) {
                     Text("Optimal").tag("Optimal")
                     Text("Highest").tag("Highest")
-                    Text("Normal").tag("Normal")
+                    Text("Low").tag("Low")
                     Text("Selectable").tag("Selectable")
                 }
                 .pickerStyle(.menu)
                 .onChange(of: macOSQualitySelection) { _, v in
                     Session.autoSelectQuality = v
                 }
+                Text(qualityDescription(for: macOSQualitySelection))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Picker("Buffering Strategy", selection: $bufferingStrategy) {
                     Text("Fast").tag("Fast")
@@ -302,6 +374,15 @@ struct SettingsView: View {
                 .onChange(of: bufferingStrategy) { _, v in
                     Session.bufferingStrategy = v
                 }
+                Text(bufferingDescription(for: bufferingStrategy))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Auto-Resume Playback", isOn: $autoResume)
+                    .onChange(of: autoResume) { _, v in Session.autoResume = v }
+                Text("On: tap Play to jump straight to the saved position. Off: tap Play to start from the beginning.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Toggle("Show Streaming Details", isOn: $showStreamingDetails)
                     .onChange(of: showStreamingDetails) { _, v in Session.showStreamingDetails = v }
@@ -312,16 +393,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("Playback")
-            } footer: {
-                // Dynamic description — switches between the auto-
-                // quality and buffering-strategy explanations based
-                // on which dropdown the user last touched. Mirrors
-                // Apple System Settings' pattern where the footer
-                // explains the active selection.
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(qualityDescription(for: macOSQualitySelection))
-                    Text(bufferingDescription(for: bufferingStrategy))
-                }
             }
 
             Section {
@@ -384,6 +455,32 @@ struct SettingsView: View {
             apiEndpointsSection
 
             Section {
+                storagePathRow(
+                    label: "Streaming Cache",
+                    path: Session.streamingCachePath,
+                    isOverridden: Session.hasStreamingCacheOverride,
+                    onChoose: { url in
+                        Session.setStreamingCachePath(url)
+                        storageRefreshTrigger.toggle()
+                    },
+                    onReset: {
+                        Session.setStreamingCachePath(nil)
+                        storageRefreshTrigger.toggle()
+                    }
+                )
+                storagePathRow(
+                    label: "Downloads",
+                    path: Session.savedDownloadsPath,
+                    isOverridden: Session.hasSavedDownloadsOverride,
+                    onChoose: { url in
+                        Session.setSavedDownloadsPath(url)
+                        storageRefreshTrigger.toggle()
+                    },
+                    onReset: {
+                        Session.setSavedDownloadsPath(nil)
+                        storageRefreshTrigger.toggle()
+                    }
+                )
                 Toggle("Clear cache on quit", isOn: $clearCacheOnExit)
                     .onChange(of: clearCacheOnExit) { _, v in Session.removeCacheOnPlayerExit = v }
                 Button(role: .destructive) {
@@ -398,8 +495,13 @@ struct SettingsView: View {
             } header: {
                 Text("Storage")
             } footer: {
-                Text("Cached video data accumulates while you watch. Clearing it recovers disk space; the next play has to re-download.")
+                Text("Cache holds in-flight streaming pieces (wiped on Clear All Cache). Downloads holds completed saves. Changing a folder applies to new playback / downloads — existing files stay where they are.")
             }
+            // `storageRefreshTrigger` makes SwiftUI recompute the Form
+            // body when an override changes — without it the path Texts
+            // (which read static `Session` values, not `@State`) would
+            // continue showing the old path until the view rebuilt.
+            .id(storageRefreshTrigger)
         }
         .formStyle(.grouped)
         // Result confirmation for "Clear All Cache" — attached at the
@@ -541,6 +643,22 @@ struct SettingsView: View {
     @State private var showStreamingDetails: Bool = Session.showStreamingDetails
     @State private var bufferingStrategy: String = Session.bufferingStrategy
     @State private var showBufferingStrategyAlert = false
+    @State private var autoResume: Bool = Session.autoResume
+
+    /// Auto-resume toggle — when on (default), the player jumps straight
+    /// to the saved position; when off, playback starts from the
+    /// beginning. There's no in-player prompt either way; this toggle is
+    /// the single control. The PlayButton's "Resume" label flips
+    /// whenever progress exists, regardless of this toggle, since the
+    /// label answers "is there saved state?".
+    @ViewBuilder
+    var autoResumeToggle: some View {
+        Toggle("Auto-Resume Playback", isOn: $autoResume)
+            .font(.system(size: theme.fontSize, weight: .medium))
+            .onChange(of: autoResume) { _, newValue in
+                Session.autoResume = newValue
+            }
+    }
 
     @ViewBuilder
     var removeCacheOnPlayerExitToggle: some View {
@@ -601,11 +719,11 @@ struct SettingsView: View {
     func bufferingDescription(for value: String) -> String {
         switch value {
         case "Fast":
-            return "Minimal pre-buffer. Snappy start; may briefly stutter on weak swarms.".localized
+            return "Wait for 3 head pieces (~3–6 MB) before starting. Snappiest first frame; tightest tolerance for weak swarms.".localized
         case "Balanced":
-            return "A few seconds of headroom. Good balance of start speed and stability.".localized
+            return "Wait for 4 head pieces (~4–8 MB) before starting. Good default — works on most swarms.".localized
         case "Smooth":
-            return "Bigger buffer. Near-zero stutter risk; ~5-10 s slower to first frame.".localized
+            return "Wait for 8 head pieces (~8–16 MB) before starting. More upfront wait, more cushion against immediate stalls on slow connections.".localized
         default:
             return ""
         }
@@ -981,7 +1099,7 @@ struct SettingsView: View {
             if !viewModel.isOpenSubtitlesLoading {
                 return AnyView(EmptyView())
             } else {
-                return AnyView(ProgressView().progressViewStyle(CircularProgressViewStyle()))
+                return AnyView(ProgressView())
             }
         }()
         
@@ -1013,7 +1131,6 @@ struct SettingsView: View {
         } message: {
             if viewModel.isOpenSubtitlesLoading {
                 ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .blue))
             } else if let error = viewModel.openSubtitlesLoginError {
                 Text("Error: \(error)")
             } else {
@@ -1232,18 +1349,18 @@ struct QualityPickerView: View {
         let description: LocalizedStringKey
     }
 
-    /// Order: Optimal (recommended) first, then Highest, Normal,
+    /// Order: Optimal (recommended) first, then Highest, Low,
     /// Selectable. Matches the order in the Settings row's value text
     /// label and the tier ordering in the spec.
     private let options: [Option] = [
         Option(id: "Optimal",
                title: "Optimal",
-               description: "Adaptive — picks the best quality your connection can sustain and waits for enough buffer to play without stuttering. Recommended."),
+               description: "Adaptive — picks the best source by composite quality (release tier > resolution > seeds). Recommended."),
         Option(id: "Highest",
                title: "Highest",
                description: "Always picks the highest resolution available. May take longer to start on 4K sources or weak swarms."),
-        Option(id: "Normal",
-               title: "Normal",
+        Option(id: "Low",
+               title: "Low",
                description: "Lowest resolution for the fastest start and lowest bandwidth. Useful on slow or metered connections."),
         Option(id: "Selectable",
                title: "Selectable",

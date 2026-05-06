@@ -26,6 +26,19 @@ struct PlayButton: View {
     @State private var swapPending: SwapPending?
     @State private var showingSwapPicker = false
 
+    // `MoviePrefetcher` invocation is currently disabled — same
+    // family of issues as `TorrentSessionWarmer.warmAllRecentlyPlayed`
+    // in `App.swift`. The trace caught it churning targets as torrents
+    // merge in (`start 720p → cancel → start 480p → cancel` over ~1 s)
+    // and crashing libtorrent with `EXC_BAD_ACCESS` in
+    // `peer_connection::on_receive_data` — peer connections receiving
+    // data after their parent torrent was removed via the cancel path.
+    // The class stays in `PreloadTorrentViewModel.swift` for later
+    // re-introduction once prefetch can run on an isolated libtorrent
+    // session (separate from the play session) so cancel can't race
+    // with in-flight peer I/O on a torrent the play streamer cares
+    // about.
+
     struct PlayTorrent: Identifiable, Equatable {
         /// Compose id from URL + resume to force `fullScreenContent` to
         /// re-present when we swap to a new source mid-session — even
@@ -46,13 +59,24 @@ struct PlayButton: View {
             // Fresh play attempt — clear the swap exclusion list so the
             // user gets the full pool again next time the toast fires.
             self.triedURLs = []
+            // Defensive — cancel any prefetch streamer that might
+            // still be alive from a prior code path. Currently a
+            // no-op because `MoviePrefetcher.shared.start(...)`
+            // isn't called below, but the cancel is cheap and
+            // preserves the invariant if prefetch is re-enabled.
+            MoviePrefetcher.shared.cancel()
             self.showTorrent = PlayTorrent(torrent: torrent)
         }, label: {
             VStack {
                 VisualEffectBlur() {
                     Image("Play")
                 }
-                Text("Play")
+                // Label flips to "Resume" when the watchlist holds a
+                // saved position for this media — pairs with the auto-
+                // resume in PlayerViewModel.playOnAppear so the user
+                // knows what tapping is going to do (jump in mid-movie
+                // vs start from the beginning).
+                Text(hasResumePoint ? "Resume" : "Play")
             }
         })
         .frame(width: theme.buttonWidth, height: theme.buttonHeight)
@@ -73,6 +97,14 @@ struct PlayButton: View {
             actions: { swapPickerActions },
             message: { Text("The previous source had playback issues. Pick another to continue from where you left off.") }
         )
+        // Prefetch invocation disabled — see the comment on the
+        // `prefetcher` property declaration. Re-enable by un-
+        // commenting the body of this `.task`.
+        // .task(id: "\(media.id)-\(media.torrents.count)") {
+        //     do { try await Task.sleep(for: .milliseconds(400)) }
+        //     catch { return }
+        //     MoviePrefetcher.shared.start(media: media)
+        // }
     }
 
     /// Buttons rendered inside the swap picker. Sorted by adjusted
@@ -116,6 +148,22 @@ struct PlayButton: View {
         case .unknown:  source = ""
         }
         return "\(quality)\(source) (\(torrent.seeds) seeds)"
+    }
+
+    /// True when the watchlist has a non-zero saved position for this
+    /// media. Mirrors the lookup PreloadTorrentViewModel uses — Movie
+    /// vs Episode get different singletons because WatchedlistManager
+    /// is generic and namespaces its UserDefaults keys per type.
+    private var hasResumePoint: Bool {
+        let progress: Float
+        if media is Movie {
+            progress = WatchedlistManager<Movie>.movie.currentProgress(media.id)
+        } else if media is Episode {
+            progress = WatchedlistManager<Episode>.episode.currentProgress(media.id)
+        } else {
+            progress = 0
+        }
+        return progress > 0
     }
 
     /// Called from the in-player toast when the user taps "Switch source".
