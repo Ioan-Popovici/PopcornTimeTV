@@ -52,9 +52,6 @@ struct PlayerView: View {
         .focusScope(namespace)
         .ignoresSafeArea()
         #endif
-        .alert("", isPresented: $viewModel.resumePlaybackAlert, actions: {
-            resumeActions
-        })
     }
     
     @ViewBuilder
@@ -141,21 +138,6 @@ struct PlayerView: View {
             .zIndex(1)
             .transition(.move(edge: .top))
         }
-    }
-    
-    @ViewBuilder
-    var resumeActions: some View {
-        Button(action: {
-            self.viewModel.play(resumePlayback: true)
-        }, label: {
-            Text("Resume Playing")
-        })
-        
-        Button(role: .cancel, action: {
-            self.viewModel.play()
-        }, label: {
-            Text("Start from Beginning")
-        })
     }
     
     @ViewBuilder

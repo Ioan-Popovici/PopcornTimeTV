@@ -201,6 +201,7 @@ struct ShowDetailsView: View, MediaPosterLoader {
 
                     if let episode = viewModel.nextEpisodeToWatch() {
                         PlayButton(media: episode)
+                        LanguageSelector(media: episode)
                     }
                     if viewModel.show.seasonNumbers.count > 1 {
                         seasonsButton

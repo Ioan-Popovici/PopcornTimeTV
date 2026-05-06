@@ -21,22 +21,25 @@ enum Session {
         set { UserDefaults.standard.set(newValue, forKey: "tosAccepted") }
     }
 
-    /// One of `"Normal"`, `"Optimal"`, `"Highest"`, `"Selectable"`.
+    /// One of `"Optimal"`, `"Highest"`, `"Low"`, `"Selectable"`.
     /// Defaults to `"Optimal"` for new installs and on upgrade from
     /// versions where this stored `nil` (which used to mean "show the
     /// picker every time"). Optimal auto-plays the highest-`qualityScore`
-    /// source AND adapts pre-buffer to the swarm — see
-    /// `PreloadTorrentViewModel.adaptiveReadyState`.
+    /// source — see `SelectTorrentQualityButton.autoSelectTorrent`.
     ///
     /// Legacy values stored by older builds (`"Best"`, `"Lowest"`,
-    /// `"Off"`) are mapped to the new names on read so existing users
-    /// don't lose their setting.
+    /// `"Off"`, `"Normal"`) are mapped to the current names on read so
+    /// existing users don't lose their setting. `"Normal"` was the
+    /// pre-rename label for what is now `"Low"` (lowest available
+    /// resolution) — the rename is just an honest label, the
+    /// behaviour is unchanged.
     static var autoSelectQuality: String {
         get {
             let stored = UserDefaults.standard.optionalString(forKey: "autoSelectQuality") ?? "Optimal"
             switch stored {
             case "Best":   return "Optimal"
-            case "Lowest": return "Normal"
+            case "Lowest": return "Low"
+            case "Normal": return "Low"
             case "Off":    return "Selectable"
             default:       return stored
             }
@@ -45,15 +48,17 @@ enum Session {
     }
 
     /// Preferred audio language for torrent selection (ISO 639-1, e.g. "en",
-    /// "ru", "ua"). Defaults to the system language so users on a Russian
-    /// macOS get RU torrents auto-selected. Set to "" to disable preference
-    /// and treat every locale equally.
+    /// "ru", "ua"). Defaults to **English** for first-run users; if a title
+    /// has no English audio, `selectableTorrents` falls back to whatever
+    /// language the movie does have (and `LanguageSelector` surfaces that
+    /// actual language in its label). Set to "" to disable preference and
+    /// treat every locale equally.
     static var preferredAudioLanguage: String {
         get {
             if let stored = UserDefaults.standard.optionalString(forKey: "preferredAudioLanguage") {
                 return stored
             }
-            return Locale.current.language.languageCode?.identifier ?? "en"
+            return "en"
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "preferredAudioLanguage")
@@ -76,11 +81,11 @@ enum Session {
         set { UserDefaults.standard.set(newValue, forKey: "showStreamingDetails") }
     }
 
-    /// Pre-buffer strategy that drives `PrebufferPolicy.current`. One
-    /// of `"Fast"` (default — minimal pre-buffer, snappy start),
-    /// `"Balanced"` (a few seconds of headroom for resilience), or
-    /// `"Smooth"` (bigger buffer, near-zero stutter risk on weak
-    /// swarms but ~5–10 s slower to first frame).
+    /// Pre-buffer strategy — controls how many head pieces libtorrent
+    /// must have on disk before `readyToPlay` fires. One of `"Fast"`
+    /// (3 head pieces — default, snappiest start), `"Balanced"` (4
+    /// head pieces — works on most swarms), or `"Smooth"` (8 head
+    /// pieces — more upfront wait, more cushion on slow connections).
     static var bufferingStrategy: String {
         get { UserDefaults.standard.optionalString(forKey: "bufferingStrategy") ?? "Fast" }
         set { UserDefaults.standard.set(newValue, forKey: "bufferingStrategy") }
@@ -89,6 +94,19 @@ enum Session {
     static var removeCacheOnPlayerExit: Bool {
         get { UserDefaults.standard.bool(forKey: "removeCacheOnPlayerExit") }
         set { UserDefaults.standard.set(newValue, forKey: "removeCacheOnPlayerExit") }
+    }
+
+    /// `true` (default) → tapping Play on a movie/episode with saved
+    /// progress jumps straight to the saved position. `false` → playback
+    /// starts from the beginning. There's no in-player prompt either
+    /// way (the legacy "Resume Playing / Start from Beginning" alert
+    /// has been removed); this setting is the single control. The
+    /// PlayButton's "Resume" label still flips whenever progress
+    /// exists — the label says "you have saved progress", the toggle
+    /// says "do I auto-jump on tap".
+    static var autoResume: Bool {
+        get { UserDefaults.standard.object(forKey: "autoResume") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoResume") }
     }
 
     static var themeSongVolume: Float {
@@ -155,6 +173,139 @@ enum Session {
         recentlyPlayedMagnets = Array(list.prefix(20))
     }
 }
+
+#if os(macOS)
+// MARK: - Storage path overrides (macOS, sandboxed)
+
+/// User-overridable streaming-cache and saved-downloads roots. macOS
+/// only because the app is sandboxed there: arbitrary file paths need
+/// security-scoped bookmarks (`com.apple.security.files.user-selected.
+/// read-write` + `bookmarks.app-scope` entitlements) so the granted
+/// access survives across launches. iOS / tvOS keep the platform default
+/// paths under their own sandboxes — the user can't browse to anything
+/// else anyway.
+extension Session {
+    private static let streamingCacheBookmarkKey = "streamingCacheBookmark"
+    private static let savedDownloadsBookmarkKey = "savedDownloadsBookmark"
+
+    // `nonisolated(unsafe)` because Swift 6 strict concurrency rightly
+    // flags static mutable state, but in practice these are only ever
+    // written from the main actor — Settings UI handlers and `App.init`
+    // — and read on the same actor afterwards. No background access.
+    nonisolated(unsafe) private static var resolvedStreamingCacheURL: URL?
+    nonisolated(unsafe) private static var resolvedSavedDownloadsURL: URL?
+
+    /// Effective streaming-cache path — the override if one is active,
+    /// otherwise PTTorrentStreamer's `NSTemporaryDirectory()/Downloads`
+    /// default. Settings reads this for display.
+    static var streamingCachePath: String {
+        if let url = resolvedStreamingCacheURL { return url.path }
+        return (NSTemporaryDirectory() as NSString).appendingPathComponent("Downloads")
+    }
+
+    /// Effective saved-downloads path. Default mirrors
+    /// `+[PTTorrentDownload downloadDirectory]` (Documents/Downloads on
+    /// macOS).
+    static var savedDownloadsPath: String {
+        if let url = resolvedSavedDownloadsURL { return url.path }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).last
+        return docs?.appendingPathComponent("Downloads").path ?? ""
+    }
+
+    static var hasStreamingCacheOverride: Bool { resolvedStreamingCacheURL != nil }
+    static var hasSavedDownloadsOverride: Bool { resolvedSavedDownloadsURL != nil }
+
+    /// Persist the user's streaming-cache choice and push it into
+    /// PTTorrentStreamer. Pass `nil` to clear and revert to the default.
+    static func setStreamingCachePath(_ url: URL?) {
+        applyStorageOverride(url: url,
+                             bookmarkKey: streamingCacheBookmarkKey,
+                             apply: { PTTorrentStreamer.setDownloadDirectoryOverride($0) },
+                             store: { resolvedStreamingCacheURL = $0 })
+    }
+
+    /// Persist the user's saved-downloads choice and push it into
+    /// PTTorrentDownload. Pass `nil` to clear.
+    static func setSavedDownloadsPath(_ url: URL?) {
+        applyStorageOverride(url: url,
+                             bookmarkKey: savedDownloadsBookmarkKey,
+                             apply: { PTTorrentDownload.setDownloadDirectoryOverride($0) },
+                             store: { resolvedSavedDownloadsURL = $0 })
+    }
+
+    /// Resolve persisted security-scoped bookmarks at app launch and
+    /// apply them to the PT classes BEFORE any streamer is created.
+    /// Stale or unresolvable bookmarks are silently dropped so the user
+    /// just sees the default paths and can re-pick from Settings.
+    static func applyStorageOverrides() {
+        if let url = resolveBookmark(forKey: streamingCacheBookmarkKey) {
+            resolvedStreamingCacheURL = url
+            PTTorrentStreamer.setDownloadDirectoryOverride(url.path)
+        }
+        if let url = resolveBookmark(forKey: savedDownloadsBookmarkKey) {
+            resolvedSavedDownloadsURL = url
+            PTTorrentDownload.setDownloadDirectoryOverride(url.path)
+        }
+    }
+
+    private static func applyStorageOverride(
+        url: URL?,
+        bookmarkKey: String,
+        apply: (String?) -> Void,
+        store: (URL?) -> Void
+    ) {
+        guard let url else {
+            UserDefaults.standard.removeObject(forKey: bookmarkKey)
+            apply(nil)
+            store(nil)
+            return
+        }
+        do {
+            let bookmark = try url.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            UserDefaults.standard.set(bookmark, forKey: bookmarkKey)
+            _ = url.startAccessingSecurityScopedResource()
+            apply(url.path)
+            store(url)
+        } catch {
+            // Bookmark creation failed — most commonly because the user
+            // picked a path the sandbox can't grant (e.g. /System).
+            // Leave the previous override in place rather than wiping it.
+            print("PopcornTime: bookmark creation failed for \(url.path): \(error)")
+        }
+    }
+
+    private static func resolveBookmark(forKey key: String) -> URL? {
+        guard let data = UserDefaults.standard.optionalData(forKey: key) else {
+            return nil
+        }
+        do {
+            var stale = false
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
+            if stale {
+                // Folder moved / renamed since the bookmark was created.
+                // Sandboxed apps can't refresh a stale bookmark
+                // unilaterally — we'd need the user to re-grant access.
+                UserDefaults.standard.removeObject(forKey: key)
+                return nil
+            }
+            _ = url.startAccessingSecurityScopedResource()
+            return url
+        } catch {
+            UserDefaults.standard.removeObject(forKey: key)
+            return nil
+        }
+    }
+}
+#endif
 
 /// Holds long-running `PTTorrentStreamer` instances keyed by magnet
 /// URL, used purely to keep libtorrent's session warm for likely-
@@ -230,6 +381,20 @@ final class TorrentSessionWarmer {
     func release(magnetURL: String) {
         guard let s = warmStreamers.removeValue(forKey: magnetURL) else { return }
         s.cancelStreamingAndDeleteData(false)
+    }
+
+    /// Cancel every warm streamer and detach its torrent_handle from
+    /// libtorrent's session. Called from `ClearCache.emptyCache()` so
+    /// the next Play after a cache wipe doesn't dedup onto a stale
+    /// handle pointing at a now-deleted save_path — that race aborts
+    /// in GCDWebServer's file-response init when libtorrent reports
+    /// "have piece" for bytes whose file no longer exists on disk.
+    /// Cached pieces aren't kept (we're wiping them anyway).
+    func releaseAll() {
+        for s in warmStreamers.values {
+            s.cancelStreamingAndDeleteData(false)
+        }
+        warmStreamers.removeAll()
     }
 
     /// Warm the most-recent magnets in `Session.recentlyPlayedMagnets`.

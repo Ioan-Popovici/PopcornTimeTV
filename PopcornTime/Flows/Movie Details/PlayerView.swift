@@ -109,34 +109,9 @@ struct PlayerView: View {
         }
         .focusScope(namespace)
         .ignoresSafeArea()
-        .alert(isPresented: $viewModel.resumePlaybackAlert, content: {
-            resumePlayingAlert
-        })
-//        .actionSheet(isPresented: $viewModel.resumePlaybackAlert, content: {
-//            ActionSheet(title: Text(""),
-//                        message: nil,
-//                        buttons: [
-//                            .default(Text("Resume Playing".localized)) {
-//                              self.viewModel.play(resumePlayback: true)
-//                            },
-//                            .default(Text("Start from Beginning".localized)) {
-//                              self.viewModel.play()
-//                            }
-//                        ])
-//        })
     }
-    
-    var resumePlayingAlert: Alert {
-        Alert(title: Text(""),
-              message: nil,
-              primaryButton: .default(Text("Resume Playing".localized)) {
-                self.viewModel.play(resumePlayback: true)
-              },
-              secondaryButton: .default(Text("Start from Beginning".localized)) {
-                self.viewModel.play()
-              })
-    }
-    
+
+
     @ViewBuilder
     var dimmerView: some View {
         if viewModel.showControls {

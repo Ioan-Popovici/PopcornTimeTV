@@ -30,6 +30,14 @@ using namespace libtorrent;
     std::mutex mtx;
     int MIN_PIECES; //they are calculated by divind the 3% of a torrent file size with the size of a torrent piece / selected file in case we load a multi movie torrent
     int selectedFileIndex;
+    /// Latches `YES` when the very first head-piece batch has fully
+    /// downloaded — i.e., VLC can actually start decoding. After
+    /// that, the public `bufferingProgress` is held at 1.0 because
+    /// the internal `required_pieces` window slides (clears + refills
+    /// with the next batch every time a window completes), and
+    /// reporting that windowed ratio to the UI makes "Buffered" jump
+    /// 100 % → 25 % → 100 % as windows slide.
+    BOOL _initialBufferingComplete;
 }
 
 @property (nonatomic, getter=isStreaming) BOOL streaming;

@@ -77,6 +77,7 @@
 		23446ACA26804AD20049CC72 /* TrailerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446AC926804AD20049CC72 /* TrailerButton.swift */; };
 		23446ACC26804AE80049CC72 /* TrailerButtonViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446ACB26804AE80049CC72 /* TrailerButtonViewModel.swift */; };
 		23446ACE26804F9F0049CC72 /* PlayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446ACD26804F9F0049CC72 /* PlayButton.swift */; };
+		B100BBBB0000000000000001 /* LanguageSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100AAAA0000000000000001 /* LanguageSelector.swift */; };
 		23446AD0268054EF0049CC72 /* PlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446ACF268054EF0049CC72 /* PlayerViewModel.swift */; };
 		23446AD226806FD20049CC72 /* Media + Subtitles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446AD126806FD20049CC72 /* Media + Subtitles.swift */; };
 		23446AD3268071070049CC72 /* VLCMediaPlayer+VLCFontAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DCB39301E843C0200388374 /* VLCMediaPlayer+VLCFontAppearance.swift */; };
@@ -226,6 +227,7 @@
 		23A2BD9826BEDA07004B864E /* TorrentPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B0A01526B9818100844309 /* TorrentPlayerView.swift */; };
 		23A2BD9926BEDA07004B864E /* DownloadButtonViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2391BE7C268475A200576CAD /* DownloadButtonViewModel.swift */; };
 		23A2BD9A26BEDA07004B864E /* PlayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446ACD26804F9F0049CC72 /* PlayButton.swift */; };
+		B100BBBB0000000000000002 /* LanguageSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100AAAA0000000000000001 /* LanguageSelector.swift */; };
 		23A2BD9B26BEDA07004B864E /* ActorsCrewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 237F28692693503D00FE036C /* ActorsCrewView.swift */; };
 		23A2BD9D26BEDA07004B864E /* MovieDetailsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446ABA267F168F0049CC72 /* MovieDetailsViewModel.swift */; };
 		23A2BD9E26BEDA0C004B864E /* ShowDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2388FD612691EC0D00B51201 /* ShowDetailsView.swift */; };
@@ -280,6 +282,7 @@
 		23A2BDDC26BEE11F004B864E /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D990E321DC4F028005CDE34 /* Images.xcassets */; };
 		23B0A01626B9818100844309 /* TorrentPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B0A01526B9818100844309 /* TorrentPlayerView.swift */; };
 		23B24D6B26CA6D6200B8CD84 /* PlayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446ACD26804F9F0049CC72 /* PlayButton.swift */; };
+		B100BBBB0000000000000003 /* LanguageSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B100AAAA0000000000000001 /* LanguageSelector.swift */; };
 		23B24D6C26CA6DAE00B8CD84 /* TorrentPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B0A01526B9818100844309 /* TorrentPlayerView.swift */; };
 		23B24D6D26CA715E00B8CD84 /* PreloadTorrentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446AC5267FAD000049CC72 /* PreloadTorrentViewModel.swift */; };
 		23B24D6E26CA717200B8CD84 /* PlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23446ACF268054EF0049CC72 /* PlayerViewModel.swift */; };
@@ -474,6 +477,7 @@
 		23446AC926804AD20049CC72 /* TrailerButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrailerButton.swift; sourceTree = "<group>"; };
 		23446ACB26804AE80049CC72 /* TrailerButtonViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrailerButtonViewModel.swift; sourceTree = "<group>"; };
 		23446ACD26804F9F0049CC72 /* PlayButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayButton.swift; sourceTree = "<group>"; };
+		B100AAAA0000000000000001 /* LanguageSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSelector.swift; sourceTree = "<group>"; };
 		23446ACF268054EF0049CC72 /* PlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewModel.swift; sourceTree = "<group>"; };
 		23446AD126806FD20049CC72 /* Media + Subtitles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Media + Subtitles.swift"; sourceTree = "<group>"; };
 		23446AD62680BBE80049CC72 /* VLCPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCPlayerView.swift; sourceTree = "<group>"; };
@@ -752,6 +756,7 @@
 				23446AC926804AD20049CC72 /* TrailerButton.swift */,
 				23446ACB26804AE80049CC72 /* TrailerButtonViewModel.swift */,
 				23446ACD26804F9F0049CC72 /* PlayButton.swift */,
+				B100AAAA0000000000000001 /* LanguageSelector.swift */,
 				234180A326C2D38500C32083 /* PlayButtonModel.swift */,
 				2391BE7A2684759000576CAD /* DownloadButton.swift */,
 				2391BE7C268475A200576CAD /* DownloadButtonViewModel.swift */,
@@ -1203,6 +1208,7 @@
 				23446ADB2680E7BB0049CC72 /* ProgressBar.swift in Sources */,
 				23DC476226F66C43006E18D4 /* AppScheme.swift in Sources */,
 				23446ACE26804F9F0049CC72 /* PlayButton.swift in Sources */,
+				B100BBBB0000000000000001 /* LanguageSelector.swift in Sources */,
 				234180A426C2D38500C32083 /* PlayButtonModel.swift in Sources */,
 				23313B41267E3DC100774A85 /* UserDefault.swift in Sources */,
 				23F15C8F26B1A8F800E0FE60 /* ErrorView.swift in Sources */,
@@ -1344,6 +1350,7 @@
 				23A2BD9D26BEDA07004B864E /* MovieDetailsViewModel.swift in Sources */,
 				23A2BDD826BEDC50004B864E /* JSONDecoder+KeyPath.swift in Sources */,
 				23A2BD9A26BEDA07004B864E /* PlayButton.swift in Sources */,
+				B100BBBB0000000000000002 /* LanguageSelector.swift in Sources */,
 				23CBC4CF275409B1008D2BBE /* ClearCache.swift in Sources */,
 				23A2BD9926BEDA07004B864E /* DownloadButtonViewModel.swift in Sources */,
 				23A2BDAF26BEDA2A004B864E /* SettingsView.swift in Sources */,
@@ -1414,6 +1421,7 @@
 				2304531A26BAFA900050BCB8 /* MovieDetailsViewModel.swift in Sources */,
 				23B24D7026CA75A200B8CD84 /* PreloadTorrentView.swift in Sources */,
 				23B24D6B26CA6D6200B8CD84 /* PlayButton.swift in Sources */,
+				B100BBBB0000000000000003 /* LanguageSelector.swift in Sources */,
 				23A2BD7C26BC5930004B864E /* ShowDetailsView.swift in Sources */,
 				23A10F4226C69AD60062D9CE /* DownloadButton.swift in Sources */,
 				23A2BD7726BC5923004B864E /* ShowsView.swift in Sources */,
@@ -1582,7 +1590,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1624,7 +1632,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1668,7 +1676,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
@@ -1708,7 +1716,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
 				PRODUCT_NAME = PopcornTime;
@@ -1754,7 +1762,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
@@ -1799,7 +1807,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime;
 				PRODUCT_NAME = PopcornTime;
@@ -1840,7 +1848,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime.TopShelf;
@@ -1876,7 +1884,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.1.0;
+				MARKETING_VERSION = 4.2.0;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = swiftui.PopcornTime.TopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";

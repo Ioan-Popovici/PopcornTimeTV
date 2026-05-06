@@ -7,7 +7,14 @@
 
 PROJECT      := PopcornTime.xcodeproj
 BUILD_DIR    := build
-DERIVED_DIR  := /tmp/PopcornTime-derived
+# Intentionally no -derivedDataPath. Xcode stores derived artifacts
+# (most importantly the index store) under
+# `~/Library/Developer/Xcode/DerivedData/<project-hash>` by default,
+# which is exactly where SourceKit-LSP looks. Pinning this to /tmp/
+# made every editor diagnostic surface "No such module 'PopcornKit'"
+# even though the build itself succeeded — the LSP couldn't find the
+# index. Built artefacts (the .app) still go to ./build via
+# `CONFIGURATION_BUILD_DIR`, so this only relocates the index.
 ORIGINAL_REF := 835198f
 ORIGINAL_DIR := $(BUILD_DIR)/original
 WORKTREE_DIR := /tmp/popcorntime-original
@@ -42,8 +49,7 @@ build-debug: vlc-mac resolve ## Debug build, macOS, into ./build/macOS/.
 	  -scheme "PopcornTime (macOS)" \
 	  -configuration Debug \
 	  -destination "platform=macOS" \
-	  -derivedDataPath $(DERIVED_DIR) \
-	  CONFIGURATION_BUILD_DIR=$(CURDIR)/$(BUILD_DIR)/macOS \
+		  CONFIGURATION_BUILD_DIR=$(CURDIR)/$(BUILD_DIR)/macOS \
 	  build $(PIPE)
 	@$(MAKE) --no-print-directory _link-app PLATFORM=macOS
 	@echo ""
@@ -56,8 +62,7 @@ build-ios: vlc-ios resolve ## Debug build, iOS Simulator, into ./build/iOS/.
 	  -configuration Debug \
 	  -sdk iphonesimulator \
 	  -destination "generic/platform=iOS Simulator" \
-	  -derivedDataPath $(DERIVED_DIR) \
-	  CONFIGURATION_BUILD_DIR=$(CURDIR)/$(BUILD_DIR)/iOS \
+		  CONFIGURATION_BUILD_DIR=$(CURDIR)/$(BUILD_DIR)/iOS \
 	  build $(PIPE)
 	@$(MAKE) --no-print-directory _link-app PLATFORM=iOS
 	@echo ""
@@ -70,8 +75,7 @@ build-tvos: vlc-tv resolve ## Debug build, tvOS Simulator, into ./build/tvOS/ (r
 	  -configuration Debug \
 	  -sdk appletvsimulator \
 	  -destination "generic/platform=tvOS Simulator" \
-	  -derivedDataPath $(DERIVED_DIR) \
-	  CONFIGURATION_BUILD_DIR=$(CURDIR)/$(BUILD_DIR)/tvOS \
+		  CONFIGURATION_BUILD_DIR=$(CURDIR)/$(BUILD_DIR)/tvOS \
 	  build $(PIPE)
 	@$(MAKE) --no-print-directory _link-app PLATFORM=tvOS
 	@echo ""
@@ -100,8 +104,7 @@ build-release: vlc-mac resolve ## Release macOS .app into ./build/.
 	  -scheme "PopcornTime (macOS)" \
 	  -configuration Release \
 	  -destination "platform=macOS" \
-	  -derivedDataPath $(DERIVED_DIR) \
-	  CONFIGURATION_BUILD_DIR=$(CURDIR)/$(BUILD_DIR) \
+		  CONFIGURATION_BUILD_DIR=$(CURDIR)/$(BUILD_DIR) \
 	  build $(PIPE)
 	@echo ""
 	@echo "→ $(CURDIR)/$(BUILD_DIR)/PopcornTime.app"
@@ -157,7 +160,7 @@ refresh-popcorntorrent: ## Re-pull alextud/PopcornTorrent@v2_3 and reapply popco
 clean: ## Remove ./build and DerivedData for this project.
 	@rm -rf $(BUILD_DIR)/PopcornTime.app $(BUILD_DIR)/PopcornTime.app.dSYM
 	@rm -rf $(BUILD_DIR)/macOS $(BUILD_DIR)/iOS $(BUILD_DIR)/tvOS
-	@rm -rf $(DERIVED_DIR) /tmp/PopcornTime-original-derived
+	@rm -rf ~/Library/Developer/Xcode/DerivedData/PopcornTime-* /tmp/PopcornTime-derived /tmp/PopcornTime-original-derived
 
 clean-all: clean ## Also remove the ./build/original copy and the VLCKit binary drop.
 	@rm -rf $(ORIGINAL_DIR) VLCKit/MobileVLCKit-binary VLCKit/TVVLCKit-binary "VLCKit/VLCKit - binary package" \
@@ -172,8 +175,7 @@ lint: ## Strict build: warnings become errors (treats Swift 6 warnings as failur
 	  -scheme "PopcornTime (macOS)" \
 	  -configuration Debug \
 	  -destination "platform=macOS" \
-	  -derivedDataPath $(DERIVED_DIR) \
-	  SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
+		  SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
 	  build $(PIPE)
 
 ci-local: ## Run the same build matrix CI does (macOS + iOS + tvOS, Release).

@@ -81,6 +81,11 @@ class PlayerViewModel: NSObject, ObservableObject {
         var progress: Float = 0
         var isBuffering = false
         var bufferProgress: Float = 0
+        /// Live download speed from `PTTorrentStatus.downloadSpeed` in
+        /// bytes/sec. Surfaced on the seek-buffering overlay so the user
+        /// can see the swarm is delivering rather than guessing whether
+        /// the spinner is stuck.
+        var downloadSpeed: Int = 0
         var isScrubbing = false
         var scrubbingProgress: Float = 0
         var remainingTime: String = ""
@@ -149,8 +154,41 @@ class PlayerViewModel: NSObject, ObservableObject {
                     return
                 }
                 let status = self.streamer.torrentStatus
-                self.progress.bufferProgress = status.totalProgress
+                // Monotonic guard: `totalProgress` from libtorrent is
+                // already a 0..1 ratio of finished pieces, but the
+                // value occasionally goes backwards by tiny amounts
+                // (libtorrent's piece-count maths during peer churn).
+                // The UI bar visibly jitters from "100% → 8% → 100%"
+                // when this happens, which looks like the download
+                // failed. Take the running max instead. Reset only on
+                // a hard drop (>50% lower) which means a fresh torrent
+                // was attached.
+                let newProgress = status.totalProgress
+                if newProgress + 0.5 < self.progress.bufferProgress {
+                    self.progress.bufferProgress = newProgress
+                } else if newProgress > self.progress.bufferProgress {
+                    self.progress.bufferProgress = newProgress
+                }
+                self.progress.downloadSpeed = Int(status.downloadSpeed)
                 self.healthMonitor?.observe(status: status, phase: .playback)
+
+                NSLog("[PlayerVM] status totalProgress=%.3f bufferingProgress=%.3f downloadSpeed=%d isBuffering=%d",
+                      status.totalProgress, status.bufferingProgress,
+                      status.downloadSpeed, self.progress.isBuffering)
+
+                // Recovery: if the torrent has fully downloaded but VLC
+                // is still wedged in `.buffering` (HTTP request stalled
+                // mid-flight, decoder waiting on a fulfilled promise,
+                // etc.), clear our spinner state and re-issue a `play()`
+                // to nudge VLC out. Without this the user gets stuck on
+                // the buffering UI forever even though every byte is on
+                // disk.
+                if status.totalProgress >= 0.99 && self.progress.isBuffering {
+                    self.progress.isBuffering = false
+                    if !self.mediaplayer.isPlaying {
+                        self.mediaplayer.play()
+                    }
+                }
             }
         }
     }
@@ -182,15 +220,18 @@ class PlayerViewModel: NSObject, ObservableObject {
     func playOnAppear() {
         guard mediaplayer.state == .stopped || mediaplayer.state == .opening else { return }
 
-        if startPosition > 0.0 && !resumePlayback {
-            isLoading = false
-            resumePlaybackAlert = true
-        } else {
-            // delay a little bit as it seems that vlcplayer sometimes for downloaded items will dismiss without requesting content from gcdwebserver
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: {
-                self.mediaplayer.play()
-            })
+        // Settings → Auto-Resume Playback is the single control.
+        // ON (default) + saved progress → resume from that position.
+        // OFF → start from the beginning, no prompt.
+        // The legacy "Resume Playing / Start from Beginning" alert
+        // has been removed.
+        if startPosition > 0.0 && !resumePlayback && Session.autoResume {
+            self.resumePlayback = true
         }
+        // delay a little bit as it seems that vlcplayer sometimes for downloaded items will dismiss without requesting content from gcdwebserver
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: {
+            self.mediaplayer.play()
+        })
     }
     
     func play(resumePlayback:Bool = false) {
@@ -223,16 +264,31 @@ class PlayerViewModel: NSObject, ObservableObject {
             progress.scrubbingProgress += 0.01
             positionSliderDidDrag()
         } else {
+            // Ignore additional jumps while a previous seek is still
+            // buffering. `fastForwardTorrentForRange` in the streamer
+            // *clears* libtorrent's piece priorities on every call, so
+            // a burst of rapid taps throws away the in-flight prefetch
+            // and stretches the perceived wait. Let the current seek
+            // settle first.
+            guard !progress.isBuffering else { return }
+            // Reflect the spinner immediately rather than waiting for VLC's
+            // `.buffering` delegate to fire — VLC's HTTP request to the
+            // local stream server, plus libtorrent's piece priority swap,
+            // takes long enough that the user sees an unresponsive frame
+            // for ~half a second after tapping. The state will be cleared
+            // by `mediaPlayerStateChanged(.playing)` once VLC resumes.
+            progress.isBuffering = true
             mediaplayer.jumpForward(30)
         }
-        
     }
-    
+
     func rewind() {
         if progress.isScrubbing {
             progress.scrubbingProgress -= 0.01
             positionSliderDidDrag()
         } else {
+            guard !progress.isBuffering else { return }
+            progress.isBuffering = true
             mediaplayer.jumpBackward(30)
         }
     }
@@ -275,6 +331,12 @@ class PlayerViewModel: NSObject, ObservableObject {
                 // Force a progress change rather than waiting for VLCKit's delegate call to.
                 progress.progress = progress.scrubbingProgress
                 progress.elapsedTime = progress.scrubbingTime
+                // Show the spinner right away. VLC's `.buffering` delegate
+                // doesn't fire until after libtorrent has rerouted piece
+                // priorities to the new offset, leaving a visible "frozen
+                // frame" between release-of-slider and VLC actually
+                // starting to fetch. Cleared by `.playing`.
+                progress.isBuffering = true
             }
         } else {
             startScrubbing()
@@ -395,7 +457,12 @@ class PlayerViewModel: NSObject, ObservableObject {
         nowPlaying.removeRemoteCommandCenterHandlers()
 //        endReceivingScreenNotifications()
         
-        streamer.cancelStreamingAndDeleteData(Session.removeCacheOnPlayerExit)
+        // Player exit never deletes the on-disk cache — partial
+        // downloads survive so seek-back and re-watch are instant
+        // across player sessions. The "Clear Cache Upon Exit"
+        // toggle now fires on app exit (see App.swift's scenePhase
+        // handler) rather than every time the player closes.
+        streamer.cancelStreamingAndDeleteData(false)
         
         saveMediaProgress(status: .finished)
         NotificationCenter.default.removeObserver(self, name: .PTTorrentStatusDidChange, object: nil)

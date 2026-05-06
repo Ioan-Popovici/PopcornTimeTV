@@ -7,6 +7,104 @@ project adopts [Semantic Versioning](https://semver.org/) and the
 
 ## Unreleased
 
+## [4.2.0] — 2026-05-07
+
+### Added
+- **"Low" auto-select quality**. Settings → Auto Select Quality now
+  has an honestly-named `Low` option (always picks the lowest available
+  resolution, useful on slow or metered connections). Replaces the
+  misleading `Normal` label that did the same thing. Existing users on
+  `Normal` are mapped to `Low` on read, so no setting is lost.
+- **Cache survives player exit**. Closing the player no longer wipes
+  the on-disk torrent cache. The "Clear Cache Upon Exit" toggle now
+  fires on **app exit** instead — `scenePhase .background` for the
+  iOS/tvOS/standard macOS path plus `applicationWillTerminate` in the
+  macOS `AppDelegate` for the Cmd-Q route. Re-watching the same movie
+  picks up from on-disk pieces; seek-back across sessions is instant.
+- **`MoviePrefetcher` infrastructure** in
+  `PreloadTorrentViewModel.swift`. Defines a singleton background
+  warmer that picks the auto-quality target the moment the user lands
+  on a movie detail page so by the time they tap Play the magnet is
+  already past metadata + initial peer discovery. **Currently
+  disabled at the call site** — rapid `start/cancel` cycles (target
+  shifts as torrents merge in across multiple async fetch calls)
+  triggered libtorrent peer-connection use-after-free in
+  `peer_connection::on_receive_data`. Safe re-enablement requires
+  isolating the prefetch on its own libtorrent session so cancel
+  can't race with in-flight peer I/O on a torrent the play streamer
+  cares about. The class stays in-tree alongside the disabled
+  `TorrentSessionWarmer.warmAllRecentlyPlayed` (App.swift) for the
+  same future re-architecture.
+
+### Changed
+- **`bufferingProgress` is now monotonic** for external consumers.
+  `PTTorrentStreamer.pieceFinishedAlert` was reporting the
+  *current sliding-piece-window* completion ratio
+  (`1.0 − missing/total`); after the first window completed,
+  `prioritizeNextPieces` cleared and refilled the window with the
+  next batch and the next callback computed `1.0 − 3/4 = 0.25`,
+  making the preload bar lurch 100 → 25 → 100 % as windows slid. A
+  new `_initialBufferingComplete` ivar latches on the first
+  `allRequiredPiecesDownloaded == YES` and pins the public value at
+  `1.0` thereafter; the windowed maths stay internal for fast-
+  forward seek tracking.
+- **Seek priority preservation**. `prioritizeNextPieces` no longer
+  blasts every piece's priority back to `low_priority` and clears
+  every deadline on each window slide — that was killing in-flight
+  prefetch from prior seeks (peers stop sending a piece the moment
+  its priority drops + deadline clears). The new selective demote
+  only knocks the *previously top-prioritised* `required_pieces`
+  back down; everything else keeps whatever priority it had. Net
+  effect: pieces that were 80 % done from a previous seek-back
+  finish naturally on idle bandwidth, the movie genuinely
+  accumulates on disk, and seek-back to a watched region is
+  instant instead of triggering a fresh fetch.
+- **Adaptive seconds-of-runtime pre-buffer gate dropped.** The
+  Swift-side `evaluateAdaptiveGate` used to hold playback for
+  Balanced=4 s / Smooth=8 s of decoded runtime *after*
+  `readyToPlay` had already fired, as insurance against mid-
+  playback speed dips. With the seek-priority fix making
+  intermediate pieces actually accumulate AND VLC's own
+  `.buffering` covering transient hiccups AND
+  `PlaybackHealthMonitor` catching chronic swarm collapses, that
+  insurance was redundant — and confusing ("buffering at 100 %?").
+  Now `readyToPlay` means play immediately. `Fast/Balanced/Smooth`
+  presets are now purely *how many head pieces libtorrent waits
+  for*: 3 / 4 / 8 — honest about what they control.
+- **Preload UI is now Apple HIG-compliant**.
+  `PreloadTorrentView`'s indeterminate-bouncing `ProgressView()` +
+  separate "Buffered: X%" determinate text label (HIG: don't mix
+  determinate text with indeterminate bar) replaced with a single
+  determinate `ProgressView(value: viewModel.progress)` bound to
+  the now-monotonic `bufferingProgress`. The stats panel's
+  "Buffered" row renamed to "Downloaded" and bound to
+  `totalProgress` — honest "how much of the file is on disk".
+- **Settings copy reflects current behaviour**. Buffering Strategy
+  descriptions now describe head-piece counts honestly (no longer
+  promise "a few seconds of headroom" — that gate is gone).
+  Auto-Select Quality picker reordered with `Low` in place of
+  `Normal`; Optimal description rewritten to remove the
+  "waits for enough buffer to play without stuttering" line that no
+  longer applies.
+
+### Fixed
+- **Bar oscillation 100 → 25 → 100 % during pre-buffer**. See the
+  `bufferingProgress` monotonic latch above.
+- **Seek-back losing in-progress prefetch**. See the selective
+  demote in `prioritizeNextPieces` above. Symptom users hit:
+  rapid forward + back jumps caused libtorrent to thrash, with
+  partial pieces from the prior target never finishing.
+- **`SettingsView` spinner inconsistency**. Dropped the explicit
+  `CircularProgressViewStyle(tint: .blue)` / `…Style()` calls in
+  the OpenSubtitles login flow — `ProgressView()`'s default style
+  adapts per platform and matches the rest of the app.
+- **Dead `rateRatio` config + `waitingForRate` enum case**. All
+  three `PrebufferPolicy` presets had `rateRatio: nil`, so the
+  rate gate never fired; struck along with the unreachable
+  `waitingForRate` status case + its localisation strings + the
+  helper machinery (`fileBitrate`, `parseSize`, `torrentSizeBytes`,
+  `avgDownloadSpeed`) that only fed it.
+
 ## [4.1.0] — 2026-05-05
 
 ### Added
